@@ -1,0 +1,20 @@
+{
+  "style_id": "q_crayon_001",
+  "style_name": "软糯蜡笔 Q 版半身头像",
+  "version": "1.1.0",
+  "status": "active",
+  "cover_image": null,
+  "reference_images": [],
+  "background": "white",
+  "aspect_ratio": "1:1",
+  "initial_count": 1,
+  "revision_count": 1,
+  "allowed_controls": ["hair_source_asset_id", "glasses_keep", "clothes_mode", "clothes_source_asset_id", "extra_requirement"],
+  "prompt_template": {
+    "system_style": "采用软糯蜡笔 Q 版半身头像风格：大头小肩膀、半身构图、柔和配色、轮廓略有蜡笔颗粒感、五官简化、鼻子极简、腮红明显。",
+    "subject_rule": "主照片确定脸型和主要五官，保持同一人的识别特征；辅助照片仅补充指定元素；参考图仅参考指定局部元素，不复制参考图人物身份。",
+    "render_rule": "白色纯背景，1:1 画幅。每次只输出一张独立的单人头像，不拼图、不排版多张候选。",
+    "negative_rule": "避免写实皮肤纹理、复杂背景、文字水印和额外人物。"
+  },
+  "qa_checklist": ["大头小肩膀、半身构图", "白底、1:1", "柔和配色、明显腮红", "蜡笔颗粒感轮廓", "人物特征和指定来源保持"]
+}
