@@ -1,0 +1,7 @@
+tunnel: 51ef2c44-2013-4609-9f37-8e33c7515e57
+credentials-file: C:\Users\Administrator\.cloudflared\51ef2c44-2013-4609-9f37-8e33c7515e57.json
+
+ingress:
+  - hostname: aiface.ai136.top
+    service: http://127.0.0.1:3001
+  - service: http_status:404

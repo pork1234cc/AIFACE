@@ -16,6 +16,33 @@
 
 ## 本地启动
 
+### Cloudflare Tunnel 远程访问
+
+域名为 <https://aiface.ai136.top>，已由 Cloudflare Access 应用 `aiface` 保护，允许使用已配置的邮箱一次性验证码登录。入口指向本机生产构建的前端 `127.0.0.1:3001`；Next.js 再将同源 `/api` 转发到 `127.0.0.1:8000`。不需要开放本机入站端口。浏览器若已有同一 Cloudflare Access 组织的有效会话，可能直接进入；无会话的请求应跳转到 Access 登录。
+
+先按下方本地启动步骤运行后端和 Worker（`start-dev.ps1` 同时启动开发前端 `3000`，但 Tunnel 不再使用该端口）。另开 PowerShell，从项目根目录构建并启动独立的生产前端；两个命令使用同一终端，运行期间保留窗口：
+
+```powershell
+$env:AIFACE_NEXT_DIST_DIR = '.next-mobile'
+npm.cmd --prefix frontend run build
+Push-Location frontend
+try { npm.cmd run start -- --port 3001 } finally { Pop-Location }
+```
+
+确认 <http://127.0.0.1:3001/api/health> 返回 `{"status":"ok"}` 后，再在另一终端启动专用 Tunnel：
+
+```powershell
+& 'C:\Users\Administrator\AppData\Local\Programs\cloudflared\cloudflared.exe' --protocol http2 --config 'E:\2-AI\AIFACE\scripts\cloudflared-aiface.yml' tunnel run
+```
+
+Tunnel 配置见 [cloudflared-aiface.yml](scripts/cloudflared-aiface.yml)。凭据 JSON 仅保存在本机 `.cloudflared` 目录，不提交到项目。现有 `crypto-trend-dashboard` 使用另一条 Tunnel 和 `trend.ai136.net`，两个进程可并行；不要用旧项目的默认配置启动 AIFACE。此处是手动启动的后端/Worker、生产前端和 Tunnel，尚未设置开机自启；电脑重启后三者都需重新启动。前端代码更新后，应先正常停止 `3001` 进程，再重建同一 `.next-mobile` 目录并启动，避免运行中覆盖构建文件。首次外网验收需由授权邮箱本人完成验证码登录，再检查页面及 `/api/health`。
+
+若日后要重新创建该域名的 DNS 路由，须明确指定 `cert-ai136-top.pem` 并只传短主机名 `aiface`，避免默认的 `ai136.net` 授权证书将全名拼接到旧域名下；当前 DNS 已配置，无需重复运行：
+
+```powershell
+& 'C:\Users\Administrator\AppData\Local\Programs\cloudflared\cloudflared.exe' --origincert 'C:\Users\Administrator\.cloudflared\cert-ai136-top.pem' --config 'E:\2-AI\AIFACE\scripts\cloudflared-aiface.yml' tunnel route dns 51ef2c44-2013-4609-9f37-8e33c7515e57 aiface
+```
+
 双击项目根目录的 [start-aiface.cmd](start-aiface.cmd) 即可启动前端、后端和生成 Worker；启动成功后打开 <http://127.0.0.1:3000>。运行期间保留启动窗口，按 Ctrl+C 停止服务。启动失败时窗口会保留错误提示，不会一闪而过。此入口自动清除前端隔离验收环境变量，调用下方同一个启动脚本，不需要先激活虚拟环境。
 
 环境：Windows PowerShell、Python 3.12.14（根目录 `.venv`）、Node.js 22.23.2、npm 10.9.8。所有命令在项目根目录执行；当前环境已安装依赖。

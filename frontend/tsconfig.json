@@ -38,7 +38,11 @@
     ".next-stage5-qa/types/**/*.ts",
     ".next-stage5-qa/dev/types/**/*.ts",
     ".next-ui-fix-qa/types/**/*.ts",
-    ".next-ui-fix-qa/dev/types/**/*.ts"
+    ".next-ui-fix-qa/dev/types/**/*.ts",
+    ".next-tunnel/types/**/*.ts",
+    ".next-tunnel/dev/types/**/*.ts",
+    ".next-mobile/types/**/*.ts",
+    ".next-mobile/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

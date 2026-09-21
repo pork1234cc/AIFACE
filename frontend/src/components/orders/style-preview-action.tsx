@@ -66,9 +66,11 @@ export function StylePreviewAction({ style, onUpdated, onMessage }: {
     finally { sending.current = false; setBusy(false); }
   }
 
+  const actionLabel = busy ? "提交中…" : previewLabel(style);
+  const compactLabel = actionLabel === "重新生成示意图" ? "重生成" : actionLabel === "生成示意图" ? "生成" : actionLabel;
   return <>
-    <button className="style-preview-action" type="button" disabled={busy || previewBusy(style)} onClick={() => void generate()} title="使用统一示例底图生成；调用模型会产生费用">
-      {busy ? "提交中…" : previewLabel(style)}
+    <button className="style-preview-action" type="button" disabled={busy || previewBusy(style)} onClick={() => void generate()} aria-label={actionLabel} title="使用统一示例底图生成；调用模型会产生费用">
+      <span className="style-preview-action-full">{actionLabel}</span><span className="style-preview-action-compact" aria-hidden="true">{compactLabel}</span>
     </button>
     {reconcile && <dialog open className="style-dialog" aria-label="核对示意图任务">
       <form className="order-form" onSubmit={submitReconcile}>

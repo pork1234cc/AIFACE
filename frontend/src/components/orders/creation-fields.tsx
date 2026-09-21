@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiGet, errorMessage } from "@/lib/api";
 import { aspectSizes, type Asset, type ChangeItem, type OrderParams, type Style } from "@/types/orders";
 import { CustomStyleEditor } from "./custom-style-editor";
@@ -19,6 +19,8 @@ export function StyleCards({ selected, onSelect, disabled = false, manage = fals
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Style | null>(null);
   const [editor, setEditor] = useState<{ style: Style | null } | null>(null);
+  const [expandedPreview, setExpandedPreview] = useState<{ src: string; name: string; unoptimized: boolean } | null>(null);
+  const previewDialogRef = useRef<HTMLDialogElement>(null);
   const [notice, setNotice] = useState("");
   const updateStyle = (saved: Style) => setStyles((current) => current.some((style) => style.style_id === saved.style_id)
     ? current.map((style) => style.style_id === saved.style_id ? saved : style) : [...current, saved]);
@@ -38,6 +40,12 @@ export function StyleCards({ selected, onSelect, disabled = false, manage = fals
     void refresh();
     return () => { controller.abort(); clearTimeout(timer); };
   }, [manage]);
+  useEffect(() => {
+    const dialog = previewDialogRef.current;
+    if (!dialog) return;
+    if (expandedPreview && !dialog.open) dialog.showModal();
+    if (!expandedPreview && dialog.open) dialog.close();
+  }, [expandedPreview]);
   return <div className="style-cards">
     {manage && <div className="style-original"><button type="button" className="order-button" onClick={() => { setDetail(null); setEditor({ style: null }); }}>＋ 新建自定义风格</button></div>}
     {notice && <p className="style-original" role="status">{notice}</p>}
@@ -51,15 +59,22 @@ export function StyleCards({ selected, onSelect, disabled = false, manage = fals
           {(preview || previewBusy(style) || style.preview?.status === "failed" || style.preview?.status === "submission_unknown") && <span className="style-cover-label">{previewBusy(style) ? "示意图生成中…" : style.preview?.status === "submission_unknown" ? "提交结果待核对" : style.preview?.status === "failed" ? "生成失败 · 可重试" : style.cover_stale ? "提示词已修改 · 封面待更新" : "风格示意"}</span>}
         </span>
       </>;
+      const previewButton = preview && <button className="style-preview-zoom" type="button" aria-label={`放大查看${style.style_name}示意图`}
+        onClick={() => setExpandedPreview({ src: preview, name: style.style_name, unoptimized: !!style.cover_image })}>{cover}</button>;
       const name = <span className="style-name" title={style.style_name}>{style.style_name}</span>;
       const description = style.preview?.error_message || style.description;
       return <article className={`style-card ${selected === style.style_id ? "selected" : ""}`} key={style.style_id}>
-      {onSelect ? <button className="style-card-content" type="button" disabled={disabled} aria-pressed={selected === style.style_id} onClick={() => onSelect(style.style_id)}>
-        {cover}{name}{description && <span className="style-description" title={description}>{description}</span>}
-      </button> : <div className="style-card-content">{cover}<div className="style-title-row">{name}{manage && !style.is_builtin && <StylePreviewAction style={style} onUpdated={updateStyle} onMessage={setNotice} />}</div>{description && <span className="style-description" title={description}>{description}</span>}</div>}
+      {onSelect ? <>{previewButton}<button className="style-card-content" type="button" disabled={disabled} aria-pressed={selected === style.style_id} onClick={() => onSelect(style.style_id)}>
+        {!preview && cover}{name}{description && <span className="style-description" title={description}>{description}</span>}
+      </button></> : <div className="style-card-content">{previewButton || cover}<div className="style-title-row">{name}{manage && !style.is_builtin && <StylePreviewAction style={style} onUpdated={updateStyle} onMessage={setNotice} />}</div>{description && <span className="style-description" title={description}>{description}</span>}</div>}
       <button className="text-button" type="button" onClick={() => setDetail(style)}>查看提示词</button>
     </article>;
     })}
+    <dialog ref={previewDialogRef} className="style-preview-dialog" aria-label={expandedPreview ? `${expandedPreview.name}风格示意图` : "风格示意图"} onClose={() => setExpandedPreview(null)}>
+      {expandedPreview && <><div className="style-preview-dialog-image">
+        <Image src={expandedPreview.src} alt={`${expandedPreview.name}风格示意图放大预览`} fill sizes="(max-width: 560px) 90vw, 80vw" unoptimized={expandedPreview.unoptimized} />
+      </div><div className="style-preview-dialog-footer"><span>{expandedPreview.name}</span><button type="button" className="order-button" onClick={() => setExpandedPreview(null)}>关闭</button></div></>}
+    </dialog>
     {detail && <dialog open className="style-dialog" aria-label="风格基础提示词">
       <h3>{detail.style_name}</h3>
       <p>{detail.is_builtin ? "内置风格提示词，只读。" : "自定义风格提示词。"}{!manage && "本次生成的完整要求请在配置下方预览。"}</p>
