@@ -1,7 +1,7 @@
 import { ApiError } from "./api.ts";
 
 export async function fetchDelivery(orderId: string): Promise<{ blob: Blob; filename: string }> {
-  if (!/^[a-zA-Z0-9_-]+$/.test(orderId)) throw new Error("订单编号无效");
+  if (!/^[a-zA-Z0-9_-]+$/.test(orderId)) throw new Error("订单信息无效");
   const response = await fetch(`/api/orders/${orderId}/delivery`, {
     cache: "no-store", signal: AbortSignal.timeout(30000),
   });

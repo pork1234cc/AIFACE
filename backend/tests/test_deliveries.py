@@ -36,7 +36,7 @@ def test_auto_current_revision_failure_success_switch_and_download(client):
     result = client.post(
         path + "/revise",
         headers={"Idempotency-Key": "revision-delivery"},
-        json={"base_asset_id": base_id, "instruction": "去掉眼镜"},
+        json={"config": {"base_asset_id": base_id, "extra_requirement": "去掉眼镜"}},
     ).json()
     provider = FakeProvider()
     with write_session(client.app.state.engine) as session:
@@ -74,7 +74,7 @@ def test_current_cannot_be_discarded_and_cross_order_rejected(client):
     for ids in [
         [base_id, foreign_id],
         [foreign_id],
-        [inputs.inputs[0].asset_id],
+        [inputs.config.base_asset_id],
         [base_id, base_id],
     ]:
         assert client.put(path, json={"asset_ids": ids}).status_code == 422

@@ -4,10 +4,19 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
-from sqlalchemy import Engine, func, or_, select, text
+from sqlalchemy import Engine, delete, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
-from app.models.orders import Asset, Order, new_id, utc_now
+from app.models.orders import (
+    Asset,
+    GenerationAction,
+    GenerationBatch,
+    GenerationTask,
+    Order,
+    OrderDelivery,
+    new_id,
+    utc_now,
+)
 from app.schemas.orders import OrderCreate, OrderPatch
 
 
@@ -104,6 +113,32 @@ def update_order(session: Session, order_id: str, payload: OrderPatch) -> Order:
     return order
 
 
+def delete_order(session: Session, order_id: str) -> None:
+    get_order(session, order_id)
+    batch_ids = select(GenerationBatch.id).where(GenerationBatch.order_id == order_id)
+    open_batch = session.scalar(
+        select(GenerationBatch.id).where(
+            GenerationBatch.order_id == order_id,
+            GenerationBatch.status.in_(("pending", "running", "needs_attention")),
+        ).limit(1)
+    )
+    if open_batch is not None:
+        raise BusinessError(409, "order_has_open_tasks", "订单还有未结束的生成任务，暂不能删除")
+
+    # 先解除底图外键与交付记录，再按依赖顺序删除本单关联数据。
+    session.execute(
+        update(GenerationBatch)
+        .where(GenerationBatch.order_id == order_id)
+        .values(base_asset_id=None)
+    )
+    session.execute(delete(OrderDelivery).where(OrderDelivery.order_id == order_id))
+    session.execute(delete(GenerationAction).where(GenerationAction.batch_id.in_(batch_ids)))
+    session.execute(delete(Asset).where(Asset.order_id == order_id))
+    session.execute(delete(GenerationTask).where(GenerationTask.batch_id.in_(batch_ids)))
+    session.execute(delete(GenerationBatch).where(GenerationBatch.order_id == order_id))
+    session.execute(delete(Order).where(Order.id == order_id))
+
+
 def list_orders(session: Session, page: int, page_size: int, status: str | None, q: str) -> dict:
     query = select(Order)
     if status:
@@ -116,13 +151,25 @@ def list_orders(session: Session, page: int, page_size: int, status: str | None,
             )
         )
     total = session.scalar(select(func.count()).select_from(query.subquery()))
-    orders = session.scalars(
+    orders = list(session.scalars(
         query.order_by(Order.created_at.desc(), Order.id)
         .offset((page - 1) * page_size)
         .limit(page_size)
-    )
+    ))
+    latest_batch = {}
+    if orders:
+        batches = session.execute(
+            select(GenerationBatch.order_id, GenerationBatch.status)
+            .where(GenerationBatch.order_id.in_([order.id for order in orders]))
+            .order_by(GenerationBatch.created_at.desc(), GenerationBatch.id.desc())
+        )
+        for order_id, batch_status in batches:
+            latest_batch.setdefault(order_id, batch_status)
     return {
-        "items": [order_data(order) for order in orders],
+        "items": [
+            order_data(order) | {"last_batch_status": latest_batch.get(order.id)}
+            for order in orders
+        ],
         "total": total,
         "page": page,
         "page_size": page_size,

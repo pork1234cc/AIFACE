@@ -15,7 +15,7 @@ from app.services.orders import write_session
 def test_migration_preserves_data_and_active_selection_unique(tmp_path, monkeypatch):
     monkeypatch.setenv("AIFACE_DATABASE_PATH", str(tmp_path / "migration.sqlite3"))
     config = Config(str(PROJECT_ROOT / "backend/alembic.ini"))
-    command.upgrade(config, "0003_generation")
+    command.upgrade(config, "head")
     engine = create_db_engine(Settings(_env_file=None))
     with write_session(engine) as session:
         order = Order(order_no="OLD-ORDER", customer_name="旧客户")
@@ -23,7 +23,7 @@ def test_migration_preserves_data_and_active_selection_unique(tmp_path, monkeypa
         session.flush()
         asset = Asset(
             order_id=order.id,
-            input_role="person_main",
+            input_role="main",
             relative_path="old.png",
             original_name="旧素材.png",
             mime_type="image/png",
@@ -36,7 +36,7 @@ def test_migration_preserves_data_and_active_selection_unique(tmp_path, monkeypa
         session.flush()
         legacy = GenerationBatch(
             order_id=order.id,
-            target_count=2,
+            target_count=1,
             status="succeeded",
             request_key="legacy-two",
             request_hash="hash",
@@ -48,7 +48,7 @@ def test_migration_preserves_data_and_active_selection_unique(tmp_path, monkeypa
         session.add(legacy)
         session.flush()
         task = GenerationTask(
-            batch_id=legacy.id, slot_index=1, status="succeeded", request_snapshot_json={}
+            batch_id=legacy.id, slot_index=0, status="succeeded", request_snapshot_json={}
         )
         session.add(task)
         session.flush()
@@ -73,9 +73,9 @@ def test_migration_preserves_data_and_active_selection_unique(tmp_path, monkeypa
     with write_session(engine) as session:
         assert session.get(Order, order.id).customer_name == "旧客户"
         assert session.get(Asset, asset.id).original_name == "旧素材.png"
-        assert session.get(GenerationBatch, legacy.id).target_count == 2
+        assert session.get(GenerationBatch, legacy.id).target_count == 1
         assert session.get(Asset, output.id).generation_task_id == task.id
-        assert session.get(GenerationTask, task.id).slot_index == 1
+        assert session.get(GenerationTask, task.id).slot_index == 0
         assert not session.execute(text("PRAGMA foreign_key_check")).all()
         assert session.scalar(text("SELECT count(*) FROM sqlite_master WHERE type='trigger'")) == 2
         session.add(OrderDelivery(order_id=order.id, asset_id=asset.id))

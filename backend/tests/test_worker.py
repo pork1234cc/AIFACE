@@ -6,7 +6,7 @@ from test_assets import image_bytes
 from test_generation_service import ready, submit
 from test_orders_api import client as api_client
 
-from app.models.orders import Asset, GenerationBatch, GenerationTask
+from app.models.orders import GenerationBatch, GenerationTask
 from app.providers.apii import ProviderError
 from app.schemas.generation import RetryRequest
 from app.services.generation import make_task, retry_batch
@@ -64,6 +64,8 @@ def state(client, batch_id):
 def test_single_result_and_restart_preserves_remote_ids(client):
     order_id, payload = ready(client)
     batch = submit(client, order_id, payload)
+    assert client.get(f"/api/orders/{order_id}").json()["status"] == "generating"
+    assert client.get("/api/orders", params={"status": "generating"}).json()["total"] == 1
     provider = FakeProvider()
     with Worker(client.app.state.settings, provider, 0) as worker:
         worker.step()
@@ -78,29 +80,31 @@ def test_single_result_and_restart_preserves_remote_ids(client):
     assert all(client.get(a["content_url"]).content == image_bytes() for a in outputs)
 
 
-def test_partial_failure_retries_only_failed_slot(client):
+def test_two_orders_run_independently(client):
+    first_id, first_payload = ready(client)
+    second_id, second_payload = ready(client)
+    first = submit(client, first_id, first_payload, "first-order")
+    second = submit(client, second_id, second_payload, "second-order")
+    assert client.get("/api/orders", params={"status": "generating"}).json()["total"] == 2
+    provider = FakeProvider()
+    with Worker(client.app.state.settings, provider, 0) as worker:
+        worker.step()
+        worker.step()
+        assert len(provider.submits) == 2
+        drain(worker)
+    assert state(client, first.id)[0] == state(client, second.id)[0] == "succeeded"
+    assert client.get("/api/orders", params={"status": "review"}).json()["total"] == 2
+
+
+def test_new_schema_rejects_multiple_outputs(client):
+    from sqlalchemy.exc import IntegrityError
+
     order_id, payload = ready(client)
     batch = submit(client, order_id, payload)
-    # 旧订单的双位置任务仍可恢复，新接口不再创建双图任务。
-    with write_session(client.app.state.engine) as session:
-        legacy = session.get(GenerationBatch, batch.id)
-        legacy.target_count = 2
-        make_task(session, legacy, 1)
-    provider = FakeProvider()
-    _, tasks = state(client, batch.id)
-    provider.results[tasks[0].provider_idempotency_key] = "failed"
-    with Worker(client.app.state.settings, provider, 0) as worker:
-        drain(worker)
-        assert state(client, batch.id)[0] == "partial_failed"
-        with write_session(client.app.state.engine) as session:
-            retry_batch(
-                session, batch.id, RetryRequest(slot_indices=[tasks[0].slot_index]), "retry"
-            )
-        drain(worker)
-    assert state(client, batch.id)[0] == "succeeded"
-    assert len(provider.submits) == 3
-    with write_session(client.app.state.engine) as session:
-        assert len(list(session.scalars(select(Asset).where(Asset.kind == "generated")))) == 2
+    with pytest.raises(IntegrityError), write_session(client.app.state.engine) as session:
+        session.get(GenerationBatch, batch.id).target_count = 2
+    with pytest.raises(IntegrityError), write_session(client.app.state.engine) as session:
+        make_task(session, session.get(GenerationBatch, batch.id), 1)
 
 
 def test_query_and_download_do_not_regenerate(client):
@@ -115,9 +119,13 @@ def test_query_and_download_do_not_regenerate(client):
         provider.download_error = True
         drain(worker)
         assert state(client, batch.id)[0] == "failed"
+        assert client.get(f"/api/orders/{order_id}").json()["status"] == "draft"
+        rows = client.get("/api/orders", params={"status": "draft"}).json()["items"]
+        assert rows[0]["last_batch_status"] == "failed"
         provider.download_error = False
         with write_session(client.app.state.engine) as session:
             retry_batch(session, batch.id, RetryRequest(slot_indices=[0]), "download-again")
+        assert client.get(f"/api/orders/{order_id}").json()["status"] == "generating"
         drain(worker)
     assert state(client, batch.id)[0] == "succeeded"
     assert len(provider.submits) == 1
@@ -134,6 +142,9 @@ def test_crash_and_unknown_never_resubmit(client):
     with Worker(client.app.state.settings, provider, 0) as worker:
         drain(worker)
         assert state(client, batch.id)[0] == "needs_attention"
+        assert client.get(f"/api/orders/{order_id}").json()["status"] == "generating"
+        row = client.get("/api/orders").json()["items"][0]
+        assert row["last_batch_status"] == "needs_attention"
         assert len(provider.submits) == 0
         with pytest.raises(RuntimeError, match="已有 Worker"):
             with Worker(client.app.state.settings, FakeProvider()):

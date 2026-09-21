@@ -11,7 +11,7 @@ from app.db import create_db_engine, session_scope
 from app.models.orders import Asset, Order
 
 
-def test_business_migration_and_limits(tmp_path, monkeypatch):
+def test_business_migration_and_unlimited_materials(tmp_path, monkeypatch):
     monkeypatch.setenv("AIFACE_DATABASE_PATH", str(tmp_path / "orders.sqlite3"))
     config = Config(str(PROJECT_ROOT / "backend/alembic.ini"))
     command.upgrade(config, "head")
@@ -23,7 +23,7 @@ def test_business_migration_and_limits(tmp_path, monkeypatch):
             session.flush()
             order_id = order.id
 
-        def insert_asset(role="person_aux", active=True):
+        def insert_asset(role="material", active=True):
             with session_scope(engine) as session:
                 asset = Asset(
                     order_id=order_id,
@@ -39,20 +39,17 @@ def test_business_migration_and_limits(tmp_path, monkeypatch):
                 )
                 session.add(asset)
 
-        insert_asset("person_main")
+        insert_asset("main")
         with pytest.raises(IntegrityError):
-            insert_asset("person_main")
-        insert_asset("reference")
-        with pytest.raises(IntegrityError):
-            insert_asset("reference")
+            insert_asset("main")
+        insert_asset("material")
         insert_asset()
         insert_asset()
-        with pytest.raises(IntegrityError):
-            insert_asset()
+        insert_asset()
         insert_asset(active=False)
         command.upgrade(config, "head")
         with session_scope(engine) as session:
             assert session.get(Order, order_id).customer_name == "中文客户"
-            assert len(session.scalars(select(Asset)).all()) == 5
+            assert len(session.scalars(select(Asset)).all()) == 6
     finally:
         engine.dispose()

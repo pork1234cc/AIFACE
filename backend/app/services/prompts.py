@@ -1,4 +1,8 @@
-"""当前参数与实际输入校验；首次生成一张交付图。"""
+"""统一底图配置校验与提示词；预览和提交共用。"""
+
+import re
+
+from sqlalchemy.orm import Session
 
 from app.models.orders import Asset, Order, utc_now
 from app.schemas.orders import InitialInputs, Params
@@ -8,37 +12,46 @@ from app.services.styles import load_style
 
 def validate_sources(params: Params, assets: list[Asset]) -> None:
     active = {a.id: a for a in assets if a.kind == "input" and a.is_active_input}
-    if params.hair_source_asset_id is not None:
-        hair = active.get(params.hair_source_asset_id)
-        if hair is None or hair.input_role not in {"person_main", "person_aux"}:
-            raise BusinessError(422, "invalid_hair_source", "发型来源须为本单当前主照片或辅助照片")
-    source = active.get(params.clothes_source_asset_id)
-    if params.clothes_mode == "simplified":
-        if params.clothes_source_asset_id is not None:
-            raise BusinessError(422, "invalid_clothes_source", "简化服装时不应指定来源图片")
-    elif params.clothes_source_asset_id is not None:
-        roles = (
-            {"reference"} if params.clothes_mode == "reference" else {"person_main", "person_aux"}
-        )
-        if source is None or source.input_role not in roles:
-            raise BusinessError(422, "invalid_clothes_source", "服装来源须属于本单且符合所选模式")
-    else:
-        raise BusinessError(422, "missing_clothes_source", "请为服装模式选择来源图片")
+    ids = {key for change in params.changes for key in change.source_asset_ids}
+    if params.material_slots is not None:
+        if params.changes:
+            raise BusinessError(422, "mixed_instructions", "请将逐项修改合并到额外提示词")
+        supplied = [key for key in params.material_slots if key]
+        if len(supplied) != len(set(supplied)):
+            raise BusinessError(422, "duplicate_material", "不同素材位置不能重复引用同一图片")
+        ids = set(supplied)
+        for match in re.finditer(
+            r"素材(?:图)?\s*([1-9][0-9]*|[一二三四五六七八九十])", params.extra_requirement
+        ):
+            token = match.group(1)
+            number = int(token) if token.isdigit() else "一二三四五六七八九十".index(token) + 1
+            if number > len(params.material_slots) or params.material_slots[number - 1] is None:
+                raise BusinessError(422, "missing_material", f"提示词引用的素材{number}尚未上传")
+    for key in ids:
+        if key not in active or active[key].input_role != "material":
+            raise BusinessError(
+                422, "invalid_source", "素材引用缺失、已移出或不属于本单素材图，请重新选择"
+            )
+    seen = {}
+    for change in params.changes:
+        key = (change.target_description, change.change_type)
+        value = (change.instruction, tuple(change.source_asset_ids), change.preserve_instruction)
+        if key in seen and seen[key] != value:
+            raise BusinessError(
+                422, "conflicting_changes", "同一对象同一用途存在不同要求，请合并澄清后提交"
+            )
+        seen[key] = value
 
 
 def readiness_errors(params: Params, assets: list[Asset]) -> list[str]:
-    active = [a for a in assets if a.kind == "input" and a.is_active_input]
     errors = []
-    if not 1 <= len(active) <= 4:
-        errors.append("当前素材需要 1～4 张")
-    if sum(a.input_role == "person_main" for a in active) != 1:
-        errors.append("请选择一张主照片")
-    if sum(a.input_role == "reference" for a in active) > 1:
-        errors.append("参考图最多一张")
-    if params.hair_source_asset_id is None:
-        errors.append("请选择发型来源")
+    base = next((a for a in assets if a.id == params.base_asset_id), None)
+    if base is None or (
+        base.kind == "input" and (not base.is_active_input or base.input_role != "main")
+    ):
+        errors.append("请明确选择本次编辑底图")
     try:
-        validate_sources(params, active)
+        validate_sources(params, assets)
     except BusinessError as exc:
         errors.append(exc.message)
     return errors
@@ -46,68 +59,84 @@ def readiness_errors(params: Params, assets: list[Asset]) -> list[str]:
 
 def refresh_readiness(order: Order, assets: list[Asset]) -> list[str]:
     errors = readiness_errors(Params.model_validate(order.params_json), assets)
-    if order.status in {"draft", "ready"}:
-        order.status = "draft" if errors else "ready"
+    # 输入是否齐备由 readiness 单独表达；提交任务前订单一直处于待整理。
     order.updated_at = utc_now()
     return errors
 
 
 def clear_invalid_sources(order: Order, assets: list[Asset]) -> None:
-    params = Params.model_validate(order.params_json)
-    active = {a.id: a for a in assets if a.is_active_input and a.kind == "input"}
-    hair = active.get(params.hair_source_asset_id)
-    if hair is None or hair.input_role not in {"person_main", "person_aux"}:
-        params.hair_source_asset_id = None
-    clothes = active.get(params.clothes_source_asset_id)
-    roles = {"reference"} if params.clothes_mode == "reference" else {"person_main", "person_aux"}
-    if clothes is None or clothes.input_role not in roles:
-        # 保留原服装模式，让详情明确提示重新选择；不静默改为简化服装。
-        params.clothes_source_asset_id = None
-    order.params_json = params.model_dump()
+    # 保留失效引用供用户修正，禁止静默丢弃修改关系。
     refresh_readiness(order, assets)
 
 
-def build_initial_prompt(order: Order, assets: list[Asset], payload: InitialInputs) -> dict:
+def build_initial_prompt(
+    order: Order, assets: list[Asset], payload: InitialInputs, session: Session | None = None
+) -> dict:
     if order.status in {"completed", "closed"}:
         raise BusinessError(409, "order_readonly", "已完成或关闭的订单只读")
-    by_id = {a.id: a for a in assets if a.order_id == order.id and a.is_active_input}
-    ids = [item.asset_id for item in payload.inputs]
-    if len(set(ids)) != len(ids):
-        raise BusinessError(422, "duplicate_input", "输入图片不能重复")
-    selected = []
-    for item in payload.inputs:
-        asset = by_id.get(item.asset_id)
-        if asset is None or asset.kind != "input" or asset.input_role != item.role:
-            raise BusinessError(422, "invalid_input", "输入图片须属于本单当前素材且角色一致")
-        selected.append(asset)
-    params = Params.model_validate(order.params_json)
-    errors = readiness_errors(params, selected)
+    params = payload.config
+    assets = [a for a in assets if a.order_id == order.id]
+    errors = readiness_errors(params, assets)
     if errors:
         raise BusinessError(422, "order_not_ready", "；".join(errors))
-    style = load_style(order.style_id)
-    positions = {asset.id: index + 1 for index, asset in enumerate(selected)}
-    main = next(asset for asset in selected if asset.input_role == "person_main")
-    clothes = "简化服装，保持整体协调"
-    if params.clothes_mode != "simplified":
-        clothes = f"服装取自图片 {positions[params.clothes_source_asset_id]}"
-    prompt = "\n".join(
-        [
-            "请根据以下有序输入生成一张单人头像插画。",
-            style.prompt_template.system_style,
-            style.prompt_template.subject_rule,
-            f"本人主照片：图片 {positions[main.id]}。",
-            f"发型来源：图片 {positions[params.hair_source_asset_id]}。",
-            "眼镜：" + ("保留原有眼镜。" if params.glasses_keep else "去掉眼镜。"),
-            clothes + "。",
-            f"额外要求：{params.extra_requirement or '无'}",
-            style.prompt_template.render_rule,
-            style.prompt_template.negative_rule,
-        ]
+    ids = list(dict.fromkeys(key for change in params.changes for key in change.source_asset_ids))
+    if params.material_slots is not None:
+        ids = [key for key in params.material_slots if key]
+    inputs = [{"asset_id": params.base_asset_id, "role": "base"}] + [
+        {"asset_id": key, "role": "material"} for key in ids
+    ]
+    positions = {item["asset_id"]: i + 1 for i, item in enumerate(inputs)}
+    style = (
+        load_style(params.style_id, session).model_dump()
+        if params.style_id
+        else {
+            "style_id": None,
+            "version": "original",
+            "prompt_template": {},
+        }
     )
+    lines = [
+        "图片 1 是本次编辑底图。未明确要求修改的内容默认保留。",
+        "保留底图的人物和物品数量、位置、姿态、背景及布局；画面左右均以观看者视角为准。",
+        "明确修改要求可以覆盖对应默认保留规则；修改手势仅可自然衔接邻近手腕及必要局部手臂。",
+        *[
+            f"图片 {positions[key]} 是素材，仅提供下列明确指定元素。"
+            "未明确指定时，不迁移背景、服装或其他人物特征。"
+            for key in ids
+        ],
+    ]
+    for i, change in enumerate(params.changes, 1):
+        sources = (
+            "、".join(f"图片 {positions[key]}" for key in dict.fromkeys(change.source_asset_ids))
+            or "无（文字修改）"
+        )
+        lines.append(
+            f"修改 {i}：目标：{change.target_description}；用途：{change.change_type}；"
+            f"素材来源：{sources}；要求：{change.instruction}；"
+            f"保留：{change.preserve_instruction or '未指定修改的内容'}"
+        )
+    if params.material_slots is not None:
+        lines.extend(
+            f"素材{slot} 对应图片 {positions[key]}。"
+            for slot, key in enumerate(params.material_slots, 1)
+            if key
+        )
+        lines.append(
+            "素材编号固定，与图片输入序号不同。按补充要求指定的用途使用素材；"
+            "未指明用途的素材不主动应用，不自行推断替换对象。"
+        )
+    lines.extend(
+        style["prompt_template"].values() if params.style_id else ["保持底图原有表现风格。"]
+    )
+    lines += [
+        f"补充要求及取景：{params.extra_requirement or '保留原图取景意图'}",
+        f"只输出一张独立图片，画布比例 {params.aspect_ratio}；"
+        "比例不等于取景要求，不拉伸人物或物品。",
+    ]
     return {
-        "inputs": payload.model_dump()["inputs"],
+        "inputs": inputs,
         "params": params.model_dump(),
-        "style": style.model_dump(),
-        "prompt": prompt,
+        "style": style,
+        "prompt": "\n".join(lines),
         "target_count": 1,
     }

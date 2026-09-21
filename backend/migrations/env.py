@@ -26,6 +26,9 @@ else:
                 connection=connection,
                 target_metadata=Base.metadata,
                 render_as_batch=True,
+                include_name=lambda name, type_, parent_names: (
+                    type_ != "table" or name.startswith("v2_")
+                ),
             )
             with context.begin_transaction():
                 context.run_migrations()

@@ -1,21 +1,62 @@
 """供应商单图异步适配；提交不自动重试，错误不携带原始响应。"""
 
 import base64
+import io
 import ipaddress
 import re
 import socket
 from urllib.parse import urlsplit
 
 import httpx
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.config import Settings
 from app.services.assets import MAX_BYTES
 
-BASE_URL = "https://ai.apii.cn"
 # 真实联调确认的供应商 CDN；仅此精确域名允许代理的 198.18/15 伪 IP。
 PROVIDER_CDN_HOSTS = {"img.ksidc.icu"}
 FAKE_IP_RANGE = ipaddress.ip_network("198.18.0.0/15")
 REMOTE_ID = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+# 给提示词与 JSON 字段留出空间；这是客户端保守目标，并非供应商公布的上限。
+INLINE_IMAGES_TARGET_BYTES = 4_500_000
+
+
+def prepare_inline_images(images: list[bytes]) -> list[bytes]:
+    """只压缩提交副本，不修改资产文件或任务输入快照。"""
+
+    def encoded_size(values: list[bytes]) -> int:
+        return sum(4 * ((len(value) + 2) // 3) for value in values)
+
+    prepared = list(images)
+    if encoded_size(prepared) <= INLINE_IMAGES_TARGET_BYTES:
+        return prepared
+    for index in sorted(range(len(prepared)), key=lambda item: len(prepared[item]), reverse=True):
+        if encoded_size(prepared) <= INLINE_IMAGES_TARGET_BYTES:
+            break
+        try:
+            with Image.open(io.BytesIO(prepared[index])) as source:
+                picture = ImageOps.exif_transpose(source)
+                if picture.mode in {"RGBA", "LA"} or "transparency" in picture.info:
+                    transparent = picture.convert("RGBA")
+                    background = Image.new("RGB", picture.size, "white")
+                    background.paste(transparent, mask=transparent.getchannel("A"))
+                    picture = background
+                else:
+                    picture = picture.convert("RGB")
+                output = io.BytesIO()
+                picture.save(output, format="JPEG", quality=90, optimize=True)
+                compacted = output.getvalue()
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise ProviderError(
+                "invalid_provider_input", "模型输入图片无法压缩，请重新上传或选择其他图片"
+            ) from exc
+        if len(compacted) < len(prepared[index]):
+            prepared[index] = compacted
+    if encoded_size(prepared) > INLINE_IMAGES_TARGET_BYTES:
+        raise ProviderError(
+            "provider_payload_too_large", "模型输入图片总量过大，请减少素材或换用更小的图片后重试"
+        )
+    return prepared
 
 
 class ProviderError(Exception):
@@ -75,17 +116,22 @@ class ApiiProvider:
 
     def submit(self, snapshot: dict, images: list[bytes], key: str) -> dict:
         headers = self._headers() | {"Idempotency-Key": key}
-        payload = {k: v for k, v in snapshot.items() if k != "inputs"}
-        payload["images"] = [base64.b64encode(data).decode("ascii") for data in images]
+        payload = {k: v for k, v in snapshot.items() if k not in {"inputs", "_api_url"}}
+        api_url = snapshot.get("_api_url", self.settings.image_api_url)
+        payload["images"] = [
+            base64.b64encode(data).decode("ascii") for data in prepare_inline_images(images)
+        ]
         try:
-            response = self.client.post(
-                BASE_URL + "/v1/images/edits", json=payload, headers=headers
-            )
+            response = self.client.post(api_url + "/v1/images/edits", json=payload, headers=headers)
         except httpx.HTTPError as exc:
             raise ProviderError(
                 "submission_unknown", "提交连接中断，受理结果不明，请人工核对", uncertain=True
             ) from exc
         if response.status_code in {400, 401, 403, 404, 413, 422}:
+            if response.status_code == 413:
+                raise ProviderError(
+                    "submit_rejected", "供应商拒绝请求（HTTP 413）：输入图片可能超过大小限制"
+                )
             raise ProviderError("submit_rejected", f"供应商拒绝请求（HTTP {response.status_code}）")
         if response.status_code != 200 and response.status_code != 202:
             raise ProviderError(
@@ -103,11 +149,14 @@ class ApiiProvider:
                 "submission_unknown", "提交响应缺少有效任务编号，请人工核对", uncertain=True
             ) from exc
 
-    def query(self, remote_id: str) -> dict:
+    def query(self, remote_id: str, api_url: str | None = None) -> dict:
         if not REMOTE_ID.fullmatch(remote_id):
             raise ProviderError("invalid_remote_id", "远端任务编号格式不正确")
         try:
-            response = self.client.get(BASE_URL + f"/v1/tasks/{remote_id}", headers=self._headers())
+            response = self.client.get(
+                (api_url or self.settings.image_api_url) + f"/v1/tasks/{remote_id}",
+                headers=self._headers(),
+            )
             response.raise_for_status()
             result = parse_result(response.json())
             if result["task_id"] != remote_id:

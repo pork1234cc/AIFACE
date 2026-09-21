@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.orders import GenerationBatch
+from app.providers import apii as apii_protocol
 from app.providers.apii import ApiiProvider, ProviderError
 from app.schemas.generation import ReconcileRequest, RetryRequest, ReviewRequest, RevisionRequest
 from app.schemas.orders import InitialInputs
@@ -127,7 +128,11 @@ def reconcile(request: Request, task_id: str, payload: ReconcileRequest, key: Re
             raise BusinessError(422, "missing_remote_id", "请填写供应商任务编号")
         provider = ApiiProvider(request.app.state.settings)
         try:
-            result = provider.query(payload.provider_task_id)
+            result = (
+                provider.query(payload.provider_task_id, task.request_snapshot_json.get("_api_url"))
+                if isinstance(provider, apii_protocol.ApiiProvider)
+                else provider.query(payload.provider_task_id)
+            )
             verified = result.get("model") == task.model and result.get("type") == "edit"
             if not verified:
                 raise BusinessError(422, "remote_task_mismatch", "远端任务模型或类型不匹配")

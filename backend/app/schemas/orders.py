@@ -4,8 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-Role = Literal["person_main", "person_aux", "reference"]
-OrderStatus = Literal["draft", "ready", "review", "revision_requested", "completed", "closed"]
+Role = Literal["main", "material"]
+OrderStatus = Literal["draft", "generating", "modifying", "review", "completed", "closed"]
 CustomerName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
 ]
@@ -27,13 +27,28 @@ class OrderPatch(StrictModel):
     note: Note = ""
 
 
+class ChangeItem(StrictModel):
+    target_description: CustomerName
+    change_type: CustomerName
+    source_asset_ids: list[AssetId] = Field(default_factory=list)
+    instruction: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+    ]
+    preserve_instruction: Note = ""
+
+
 class Params(StrictModel):
-    hair_source_asset_id: AssetId | None = None
-    glasses_keep: bool = True
-    clothes_mode: Literal["person", "reference", "simplified"] = "simplified"
-    clothes_source_asset_id: AssetId | None = None
-    background: Literal["white"] = "white"
-    aspect_ratio: Literal["1:1"] = "1:1"
+    schema_version: Literal[2] = 2
+    base_asset_id: AssetId | None = None
+    style_id: (
+        Annotated[str, StringConstraints(pattern=r"^(q_crayon_001|custom_[0-9a-f]{32})$")] | None
+    ) = "q_crayon_001"
+    changes: list[ChangeItem] = Field(default_factory=list, max_length=20)
+    material_slots: list[AssetId | None] | None = Field(default=None, min_length=3)
+    aspect_ratio: Literal[
+        "16:9", "21:9", "4:3", "3:2", "5:4", "1:1", "4:5", "2:3", "3:4", "9:16", "9:21"
+    ] = "1:1"
+    output_format: Literal["png", "jpeg", "webp"] = "png"
     extra_requirement: Note = ""
 
 
@@ -51,4 +66,4 @@ class InputItem(StrictModel):
 
 
 class InitialInputs(StrictModel):
-    inputs: list[InputItem] = Field(min_length=1, max_length=4)
+    config: Params

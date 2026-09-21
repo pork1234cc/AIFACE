@@ -55,10 +55,8 @@ def get_input(session: Session, order_id: str, asset_id: str) -> Asset:
 
 def check_capacity(assets: list[Asset], role: str, *, exclude_id: str | None = None) -> None:
     active = [a for a in assets if a.is_active_input and a.id != exclude_id]
-    if len(active) >= 4:
-        raise BusinessError(409, "input_limit", "当前素材最多 4 张，请先移出不需要的素材")
-    if role in {"person_main", "reference"} and any(a.input_role == role for a in active):
-        label = "主照片" if role == "person_main" else "参考图"
+    if role == "main" and any(a.input_role == role for a in active):
+        label = "主照片" if role == "main" else "参考图"
         raise BusinessError(409, "role_conflict", f"当前已有{label}，请调整角色后再操作")
 
 
@@ -112,14 +110,14 @@ def set_role(session: Session, order_id: str, asset_id: str, role: str) -> None:
     asset = get_input(session, order_id, asset_id)
     assets = get_assets(session, order_id)
     if asset.is_active_input:
-        if role == "person_main":
+        if role == "main":
             for previous in assets:
                 if (
                     previous.id != asset_id
                     and previous.is_active_input
                     and previous.input_role == role
                 ):
-                    previous.input_role = "person_aux"
+                    previous.input_role = "material"
             # 先释放唯一索引，再设置新主照片，仍处于同一写事务。
             session.flush()
         check_capacity(assets, role, exclude_id=asset_id)

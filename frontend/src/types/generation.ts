@@ -20,6 +20,8 @@ export interface BatchSummary {
   created_at: string;
 }
 export interface GenerationBatch extends BatchSummary {
+  config: import("./orders").OrderParams;
+  prompt: string;
   style_version: string;
   inputs: { asset_id: string; role: string }[];
   tasks: GenerationTask[];

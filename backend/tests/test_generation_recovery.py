@@ -11,11 +11,50 @@ from test_worker import FakeProvider, drain, state
 
 from app.config import PROJECT_ROOT, Settings
 from app.db import create_db_engine
+from app.models.orders import GenerationBatch, Order
 from app.services.assets import decode_upload
 from app.services.orders import get_order, write_session
 from app.worker import Worker
 
 client = api_client
+
+
+def test_order_status_migration_preserves_existing_tasks(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIFACE_DATABASE_PATH", str(tmp_path / "lifecycle.sqlite3"))
+    config = Config(str(PROJECT_ROOT / "backend/alembic.ini"))
+    command.upgrade(config, "0009_unlimited_materials")
+    engine = create_db_engine(Settings(_env_file=None))
+    with write_session(engine) as session:
+        for order_id, status in (
+            ("unsubmitted", "ready"),
+            ("first", "ready"),
+            ("revision", "review"),
+            ("failed-revision", "revision_requested"),
+        ):
+            session.add(Order(
+                id=order_id, order_no=f"AF-{order_id}",
+                customer_name=order_id, status=status,
+            ))
+        session.flush()
+        for order_id, operation in (("first", "initial"), ("revision", "revision")):
+            session.add(GenerationBatch(
+                order_id=order_id, operation=operation, status="running",
+                request_key=order_id, request_hash="hash", input_snapshot_json=[],
+                params_snapshot_json={}, style_snapshot_json={}, prompt_snapshot="测试",
+            ))
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_db_engine(Settings(_env_file=None))
+    with engine.connect() as connection:
+        rows = connection.execute(text("SELECT id, status FROM v2_orders"))
+        statuses = {row.id: row.status for row in rows}
+        assert statuses == {
+            "unsubmitted": "draft", "first": "generating",
+            "revision": "modifying", "failed-revision": "review",
+        }
+        assert list(connection.execute(text("PRAGMA foreign_key_check"))) == []
+    engine.dispose()
 
 
 def test_upgrade_existing_stage2_assets(tmp_path, monkeypatch):
@@ -43,6 +82,7 @@ def test_upgrade_existing_stage2_assets(tmp_path, monkeypatch):
         assert conn.scalar(text("SELECT customer_name FROM orders")) == "旧客户"
         assert conn.scalar(text("SELECT original_name FROM assets")) == "旧照片.png"
         assert conn.scalar(text("SELECT count(*) FROM sqlite_master WHERE type='trigger'")) == 2
+        assert conn.scalar(text("SELECT count(*) FROM v2_orders")) == 0
         assert list(conn.execute(text("PRAGMA foreign_key_check"))) == []
     engine.dispose()
 
@@ -51,7 +91,8 @@ def test_snapshot_uses_removed_input_after_current_changes(client):
     order_id, payload = ready(client)
     batch = submit(client, order_id, payload)
     client.patch(
-        f"/api/orders/{order_id}/images/{payload.inputs[0].asset_id}/active", json={"active": False}
+        f"/api/orders/{order_id}/images/{payload.config.base_asset_id}/active",
+        json={"active": False},
     ).raise_for_status()
     provider = FakeProvider()
     original_submit = provider.submit

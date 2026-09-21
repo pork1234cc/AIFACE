@@ -15,7 +15,9 @@ from starlette.exceptions import HTTPException
 
 from app.api.deliveries import router as deliveries_router
 from app.api.generation import router as generation_router
+from app.api.model_settings import router as model_settings_router
 from app.api.orders import router as orders_router
+from app.api.style_previews import router as style_previews_router
 from app.config import PROJECT_ROOT, Settings
 from app.db import create_db_engine
 from app.services.orders import BusinessError
@@ -40,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_db_engine(config)
         application.state.engine = engine
         application.state.settings = config
+        application.state.settings_file = PROJECT_ROOT / ".env"
         migration_config = Config(str(PROJECT_ROOT / "backend/alembic.ini"))
         application.state.schema_head = ScriptDirectory.from_config(
             migration_config
@@ -58,8 +61,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     application.include_router(orders_router)
+    application.include_router(style_previews_router)
     application.include_router(generation_router)
     application.include_router(deliveries_router)
+    application.include_router(model_settings_router)
 
     @application.exception_handler(BusinessError)
     async def business_error(request: Request, exc: BusinessError):

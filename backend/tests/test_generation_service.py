@@ -7,7 +7,7 @@ from sqlalchemy import select
 from test_orders_api import client as api_client
 from test_orders_api import create, upload
 
-from app.models.orders import Asset, GenerationBatch
+from app.models.orders import Asset, GenerationBatch, GenerationTask
 from app.schemas.orders import InitialInputs
 from app.services.generation import create_initial
 from app.services.orders import BusinessError, get_order, write_session
@@ -17,9 +17,9 @@ client = api_client
 
 def ready(client):
     order_id = create(client)
-    asset = upload(client, order_id, "person_main").json()
-    client.patch(f"/api/orders/{order_id}/params", json={"hair_source_asset_id": asset["id"]})
-    return order_id, InitialInputs(inputs=[{"asset_id": asset["id"], "role": "person_main"}])
+    asset = upload(client, order_id, "main").json()
+    client.patch(f"/api/orders/{order_id}/params", json={"base_asset_id": asset["id"]})
+    return order_id, InitialInputs(config={"base_asset_id": asset["id"]})
 
 
 def submit(client, order_id, payload, key="test-key"):
@@ -44,14 +44,16 @@ def test_idempotent_snapshot_and_concurrent_submit(client):
         submit(
             client,
             order_id,
-            InitialInputs(inputs=[{"asset_id": payload.inputs[0].asset_id, "role": "reference"}]),
+            InitialInputs(
+                config=payload.config.model_copy(update={"extra_requirement": "不同要求"})
+            ),
         )
 
 
 def test_missing_file_does_not_create_batch(client):
     order_id, payload = ready(client)
     with write_session(client.app.state.engine) as session:
-        asset = session.get(Asset, payload.inputs[0].asset_id)
+        asset = session.get(Asset, payload.config.base_asset_id)
         asset.relative_path = f"orders/{order_id}/missing.png"
     with pytest.raises(BusinessError):
         submit(client, order_id, payload)
@@ -64,3 +66,16 @@ def test_only_one_open_batch(client):
     submit(client, order_id, payload)
     with pytest.raises(BusinessError, match="未结束"):
         submit(client, order_id, payload, "another-key")
+
+
+@pytest.mark.parametrize("output_format", ["png", "jpeg", "webp"])
+def test_output_format_is_snapshotted_for_provider(client, output_format):
+    order_id, payload = ready(client)
+    payload.config.output_format = output_format
+    batch = submit(client, order_id, payload, f"format-{output_format}")
+    with write_session(client.app.state.engine) as session:
+        saved_batch = session.scalar(select(GenerationBatch).where(GenerationBatch.id == batch.id))
+        task = session.scalar(select(GenerationTask).where(GenerationTask.batch_id == batch.id))
+        assert saved_batch.params_snapshot_json["output_format"] == output_format
+        assert task.request_snapshot_json["output_format"] == output_format
+        assert task.request_snapshot_json["quality"] == "high"

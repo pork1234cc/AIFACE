@@ -28,6 +28,6 @@ export default function NewOrderPage() {
       <label>订单备注<textarea name="note" maxLength={2000} rows={5} placeholder="记录沟通信息、交付约定等。具体出图要求在下一步填写。" /></label>
       <div className="order-actions"><button className="order-button primary">{saving ? "正在创建…" : "创建订单，整理素材 →"}</button><Link className="muted" href="/orders">返回列表</Link></div>
     </fieldset></form></section>
-    <aside className="style-summary"><h3>蜡笔小像 · 固定风格</h3><p>软糯 Q 版、柔和腮红、蜡笔颗粒。<br />纯白背景 · 1:1 方形<br /><br />每单最多 4 张素材，参考图最多 1 张。<br />整理完素材与参数后，可保存为待生成订单。</p></aside></div>
+    <aside className="style-summary"><h3>开始创作</h3><p>上传一张主图片，再按需要添加素材图。<br />选择风格、尺寸和 PNG、JPEG 或 WebP 格式，填写完整提示词后生成。</p></aside></div>
   </>;
 }

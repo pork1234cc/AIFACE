@@ -1,152 +1,197 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { RevisionForm } from "./revision-form";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DeliveryPanel } from "./delivery-panel";
+import { ReconcileForm } from "./reconcile-form";
 import type { DeliveryState } from "@/types/deliveries";
 import { ApiError, apiGet, apiRequest, errorMessage } from "@/lib/api";
-import { type BatchSummary, type GenerationBatch, type GenerationTask, type GenerationStats, generationLabels } from "@/types/generation";
-import { type Asset, type OrderDetail, type OrderStatus, roleLabels } from "@/types/orders";
+import { latestBatchLog } from "@/lib/generation-log";
+import { definiteRejection, OPEN_BATCH_STATUSES, parsePending, pollDelay, type PendingRequest, type WorkspaceRuntime } from "@/lib/workspace-state";
+import { type BatchSummary, type GenerationBatch, type GenerationTask, generationLabels } from "@/types/generation";
+import { type Asset, type OrderDetail, type OrderParams, type OrderStatus } from "@/types/orders";
 
-type PendingRequest = { path: string; body: unknown; key: string };
-
-function ReconcileForm({ task, disabled, onSubmit }: {
-  task: GenerationTask; disabled: boolean; onSubmit: (path: string, body: unknown) => void;
-}) {
-  const [action, setAction] = useState("link_remote_task");
-  const [remote, setRemote] = useState("");
-  const [note, setNote] = useState("");
-  const [risk, setRisk] = useState(false);
-  return <details className="reconcile-form"><summary>核对这次提交</summary>
-    <p className="muted">先在供应商后台核对。超时本身不能证明请求未受理。</p>
-    <form onSubmit={(event) => {
-      event.preventDefault();
-      onSubmit(`/tasks/${task.id}/reconcile`, {
-        action, note: note.trim(), provider_task_id: action === "link_remote_task" ? remote.trim() : null,
-        acknowledge_possible_duplicate_charge: action === "resubmit_with_risk" && risk,
-      });
-    }}><fieldset disabled={disabled} className="order-form">
-      <label>核对结果<select value={action} onChange={(e) => { setAction(e.target.value); setRisk(false); }}>
-        <option value="link_remote_task">关联已找到的远端任务</option>
-        <option value="confirm_not_accepted">已确认供应商未受理</option>
-        <option value="resubmit_with_risk">接受可能重复计费，重新生成</option>
-      </select></label>
-      {action === "link_remote_task" && <label>供应商任务编号<input required maxLength={128} pattern="[a-zA-Z0-9_-]+" value={remote} onChange={(e) => setRemote(e.target.value)} /></label>}
-      <label>核对依据<textarea required minLength={5} maxLength={1000} placeholder="记录后台查询结果或客服确认依据" value={note} onChange={(e) => setNote(e.target.value)} /></label>
-      {action === "resubmit_with_risk" && <label className="risk-check"><input type="checkbox" required checked={risk} onChange={(e) => setRisk(e.target.checked)} />我接受旧请求可能已受理，重新生成可能重复计费</label>}
-      <button className="order-button" disabled={note.trim().length < 5 || (action === "resubmit_with_risk" && !risk)}>记录核对结果</button>
-    </fieldset></form>
-  </details>;
-}
-
-export function GenerationPanel({ order, disabled, onBusy, onStatus }: {
-  order: OrderDetail; disabled: boolean; onBusy: (busy: boolean) => void; onStatus: (status: OrderStatus) => void;
+export function GenerationPanel({ order, actionTarget, disabled, dirty, baseError, onBusy, onStatus, onRuntime, onBase }: {
+  order: OrderDetail; actionTarget: HTMLDivElement | null; disabled: boolean; dirty: boolean; baseError?: string;
+  onBusy: (busy: boolean) => void; onStatus: (status: OrderStatus) => void;
+  onRuntime: (runtime: WorkspaceRuntime) => void;
+  onBase: (asset: Asset, config?: OrderParams) => void;
 }) {
   const [history, setHistory] = useState<BatchSummary[]>([]);
   const [batch, setBatch] = useState<GenerationBatch | null>(null);
-  const [selected, setSelected] = useState("");
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [hasOpen, setHasOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [storageError, setStorageError] = useState("");
+  const [storageReady, setStorageReady] = useState(false);
   const [pending, setPending] = useState<PendingRequest | null>(null);
   const [refresh, setRefresh] = useState(0);
-  const [base, setBase] = useState<Asset | null>(null);
-  const [stats, setStats] = useState<GenerationStats | null>(null);
+  const [messages, setMessages] = useState<{ id: number; message: string; level: "info" | "error"; time: string }[]>([]);
+  const nextMessageId = useRef(0);
+  const onLog = useCallback((message: string, level: "info" | "error" = "info") => {
+    if (level !== "error") return;
+    const time = new Date().toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+    setMessages((current) => [{ id: ++nextMessageId.current, message, level, time }, ...current].slice(0, 20));
+  }, []);
+
+  const revisionDirty = dirty;
   const [delivery, setDelivery] = useState<DeliveryState | null>(null);
   const submitting = useRef(false);
+  const mounted = useRef(false);
+  const epoch = useRef(0);
+  const pendingRef = useRef<PendingRequest | null>(null);
   const statusCallback = useRef(onStatus);
-  const storageKey = `aiface:pending:${order.id}`;
-  const active = order.assets.filter((asset) => asset.kind === "input" && asset.is_active_input);
+  const storageKey = `aiface:v2:pending:${order.id}`;
+  const readonly = order.status === "completed" || order.status === "closed";
+
+  const hasOpen = delivery?.has_open_tasks ?? false;
+  const hasResult = !!delivery?.versions.length;
+  const needsAttention = hasOpen && (history.some((item) => item.status === "needs_attention") || batch?.status === "needs_attention");
   useEffect(() => { statusCallback.current = onStatus; }, [onStatus]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    onRuntime({ loaded: loaded && storageReady, hasOpen, hasResult, needsAttention, pending: !!pending || !!storageError });
+  }, [loaded, storageReady, hasOpen, hasResult, needsAttention, pending, storageError, onRuntime]);
+
+  useEffect(() => {
+    const wake = () => { if (!document.hidden) setRefresh((n) => n + 1); };
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => { window.removeEventListener("focus", wake); document.removeEventListener("visibilitychange", wake); };
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
     async function load() {
+      await Promise.resolve(); // Keep restoration updates outside the synchronous effect body.
+      if (controller.signal.aborted) return;
+      if (document.hidden) return; // Visibility/focus starts a new cycle.
+      const version = epoch.current;
+      let next: number | null = 30000;
       try {
+        try {
+          const restored = parsePending(sessionStorage.getItem(storageKey), order.id);
+          if (!submitting.current) { pendingRef.current = restored; setPending(restored); }
+          setStorageError(""); setStorageReady(true);
+        } catch {
+          setStorageError("本地待核对记录无法读取或格式损坏。已暂停新提交；请保留记录并核对服务端任务，不要直接重新生成。");
+          setStorageReady(false);
+        }
         const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
-        const list = await apiGet<{ items: BatchSummary[]; total: number }>(`/orders/${order.id}/batches?page=${page}&page_size=10`, signal);
-        const currentId = selected || list.items[0]?.batch_id;
+        const [list, finals] = await Promise.all([
+          apiGet<{ items: BatchSummary[] }>(`/orders/${order.id}/batches?page=1&page_size=1`, signal),
+          apiGet<DeliveryState>(`/orders/${order.id}/finals`, signal),
+        ]);
+        const currentId = list.items[0]?.batch_id;
         const detail = currentId ? await apiGet<GenerationBatch>(`/batches/${currentId}`, signal) : null;
-        const statistics = await apiGet<GenerationStats>(`/orders/${order.id}/generation-stats`, signal);
-        const finals = await apiGet<DeliveryState>(`/orders/${order.id}/finals`, signal);
-        if (controller.signal.aborted) return;
-        setHistory(list.items); setTotal(list.total); setBatch(detail);
-        setStats(statistics);
-        setDelivery(finals); setHasOpen(finals.has_open_tasks); setLoaded(true);
-        const stored = sessionStorage.getItem(storageKey);
-        setPending(stored ? JSON.parse(stored) as PendingRequest : null);
+        if (controller.signal.aborted || version !== epoch.current) return;
+        setHistory(list.items); setBatch(detail);
+        setDelivery(finals); setLoaded(true); setReadError("");
         statusCallback.current(finals.order_status);
-        setError("");
+        failures = 0;
+        next = pollDelay(finals.has_open_tasks || !!pendingRef.current, finals.order_status === "completed" || finals.order_status === "closed");
       } catch (cause) {
-        if (!controller.signal.aborted) { setError(errorMessage(cause)); setLoaded(false); }
+        if (!controller.signal.aborted && version === epoch.current) {
+          setReadError(errorMessage(cause)); setLoaded(false); failures += 1;
+          next = pollDelay(false, false, failures);
+        }
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(() => void load(), 4000);
+        if (!controller.signal.aborted && next !== null) timer = setTimeout(() => void load(), next);
       }
     }
     void load();
-    return () => { controller.abort(); clearTimeout(timer); };
-  }, [order.id, page, selected, refresh, storageKey]);
+    return () => { controller.abort(); if (timer) clearTimeout(timer); };
+  }, [order.id, refresh, storageKey]);
 
-  async function send(path: string, body: unknown, retry?: PendingRequest) {
-    if (submitting.current) return;
-    submitting.current = true; onBusy(true); setError("");
-    const request = retry ?? { path, body, key: crypto.randomUUID() };
+  async function send(path: string, body: unknown, retry?: PendingRequest): Promise<boolean> {
+    if (submitting.current || disabled || !storageReady || (!retry && (pending || !loaded))) return false;
+    submitting.current = true; epoch.current += 1; onBusy(true); setActionError("");
+    const request = retry ?? { path, body, key: "" };
     try {
-      // 请求编号与原始正文先保存在会话中；刷新后仍可核对同一次提交。
-      sessionStorage.setItem(storageKey, JSON.stringify(request)); setPending(request);
-      const result = await apiRequest<GenerationBatch>(request.path, {
-        method: "POST", body: request.body, idempotencyKey: request.key,
-      });
-      sessionStorage.removeItem(storageKey); setPending(null); setBatch(result);
-      setBase(null);
-      setSelected(result.batch_id); setPage(1); setRefresh((value) => value + 1);
-    } catch (cause) {
-      if (cause instanceof ApiError && [404, 409, 413, 422].includes(cause.status)) {
-        sessionStorage.removeItem(storageKey); setPending(null);
+      if (!retry) {
+        if (typeof globalThis.crypto?.randomUUID !== "function") {
+          setActionError("当前浏览器无法创建安全请求编号。请使用 localhost 或安全连接后再提交。");
+          return false;
+        }
+        request.key = crypto.randomUUID();
       }
-      setError(errorMessage(cause));
-    } finally { submitting.current = false; onBusy(false); }
+      // Persist BEFORE the POST. Retrying an uncertain request must reuse its key AND body.
+      try { sessionStorage.setItem(storageKey, JSON.stringify(request)); }
+      catch { setStorageError("浏览器无法保存待核对请求，未发送本次生成。请检查会话存储权限。"); setStorageReady(false); return false; }
+      pendingRef.current = request; setPending(request);
+      const result = await apiRequest<GenerationBatch>(request.path, { method: "POST", body: request.body, idempotencyKey: request.key });
+      // Even if the user left the page, a confirmed response can clear its own stored receipt.
+      try { sessionStorage.removeItem(storageKey); }
+      catch { if (mounted.current) { setStorageError("服务端已接收，但本地核对记录未能清理。请恢复存储后使用原请求核对。"); setStorageReady(false); } return false; }
+      pendingRef.current = null;
+      if (!mounted.current) return true;
+      epoch.current += 1; setPending(null); setBatch(result); setLoaded(false);
+      // Do not reopen controls during the interval before the next GET snapshot.
+      setDelivery((current) => current ? { ...current, has_open_tasks: OPEN_BATCH_STATUSES.has(result.status) } : current);
+      setRefresh((n) => n + 1);
+      return true;
+    } catch (cause) {
+      if (cause instanceof ApiError && definiteRejection(cause.status, cause.code)) {
+        try { sessionStorage.removeItem(storageKey); pendingRef.current = null; if (mounted.current) setPending(null); }
+        catch { if (mounted.current) { setStorageError("本地待核对记录清理失败，请刷新核对。"); setStorageReady(false); } }
+      }
+      if (mounted.current) setActionError(errorMessage(cause));
+      return false;
+    } finally {
+      submitting.current = false;
+      if (mounted.current) { epoch.current += 1; onBusy(false); setRefresh((n) => n + 1); }
+    }
   }
-  const blocked = disabled || !!pending;
+  function finalsChanged(value: DeliveryState) {
+    epoch.current += 1; setDelivery(value);
+    setRefresh((n) => n + 1);
+  }
+  const blocked = disabled || !!pending || !loaded || !storageReady;
   const latestTasks = new Map<number, GenerationTask>();
   batch?.tasks.forEach((task) => {
     if ((latestTasks.get(task.slot_index)?.attempt_no ?? 0) < task.attempt_no) latestTasks.set(task.slot_index, task);
   });
+  function retryTask(task: GenerationTask) {
+    if (batch) void send(`/batches/${batch.batch_id}/retry`, { slot_indices: [task.slot_index] });
+  }
+  function reconcileTask(path: string, body: unknown) { void send(path, body); }
+  const { summary: latestLog, error: latestError } = latestBatchLog(history, batch);
+  const failedLog = latestLog && ["failed", "partial_failed", "needs_attention"].includes(latestLog.status) ? latestLog : null;
+  const attentionTasks = !readonly ? Array.from(latestTasks.values()).filter((task) => task.status === "failed" || task.status === "submission_unknown") : [];
+  const showAttention = !!(baseError || readError || actionError || storageError || pending ||
+    (delivery && !delivery.items.length && delivery.versions.length > 0) || messages.length || failedLog || attentionTasks.length || needsAttention);
   return <section className="order-panel generation-panel">
-    <div className="section-heading"><h2>生成与交付</h2><span className="pill">每次 1 张</span></div>
-    {stats && <p className="muted">修改 {stats.revision_count} 轮 · 成功 {stats.successful_revision_count} 轮 · 生成尝试 {stats.generation_attempt_count} 次 · 已进入提交 {stats.submitted_attempt_count} 次（费用未知）</p>}
-    {!delivery?.versions.length && <><p className="muted">按已保存的风格和创作要求生成一张交付图。</p>
-    <ol className="generation-inputs">{active.map((asset) => <li key={asset.id}>{roleLabels[asset.input_role]} · {asset.original_name}</li>)}</ol></>}
-    {error && <div className="order-alert" role="alert">{error}</div>}
-    {pending && <div className="order-alert">上次提交尚未确认结果。请使用原请求核对，避免重复生成。<div><button className="order-button" disabled={disabled} onClick={() => void send(pending.path, pending.body, pending)}>重试确认上次提交</button></div></div>}
-    <div className="order-actions">{!delivery?.versions.length && <button className="order-button primary" disabled={blocked || !loaded || !order.readiness.ready || hasOpen} onClick={() => void send(`/orders/${order.id}/generate`, { inputs: active.map((asset) => ({ asset_id: asset.id, role: asset.input_role })) })}>生成交付图</button>}
-      <button className="order-button" onClick={() => setRefresh((value) => value + 1)}>刷新状态</button></div>
-    {hasOpen && <p className="muted">本单有未结束任务，完成或核对前不能再次生成。</p>}
-    {delivery && <DeliveryPanel data={delivery} disabled={blocked || !loaded} onBusy={onBusy} onStatus={onStatus} onRevise={setBase} onChange={(value) => { setDelivery(value); setBase(null); setRefresh((number) => number + 1); }} />}
-    {base && <RevisionForm key={base.id} base={base} inputs={active} disabled={blocked || hasOpen || !loaded} onCancel={() => setBase(null)} onSubmit={(body) => void send(`/orders/${order.id}/revise`, body)} />}
-    {history.length > 0 && <label className="generation-history">生成记录<select value={selected || history[0].batch_id} onChange={(e) => setSelected(e.target.value)}>
-      {history.map((item) => <option key={item.batch_id} value={item.batch_id}>{new Date(item.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })} · {item.operation === "revision" ? "修改" : item.target_count === 2 ? "旧双图记录" : "生成"} · {generationLabels[item.status]}</option>)}
-    </select></label>}
-    {total > 10 && <div className="order-pagination"><button className="order-button small" disabled={page === 1} onClick={() => { setSelected(""); setPage(page - 1); }}>较新记录</button><span>{page} / {Math.ceil(total / 10)}</span><button className="order-button small" disabled={page * 10 >= total} onClick={() => { setSelected(""); setPage(page + 1); }}>较早记录</button></div>}
-    {batch && <>
-      {batch.operation === "revision" && <div className="order-notice"><p>修改要求：{batch.revision_instruction}</p><p>基础图：<a href={`/api/images/${batch.base_asset_id}/content`} target="_blank" rel="noreferrer">查看基础版本 ↗</a> · 风格版本 {batch.style_version} · 本次输入 {batch.inputs.length} 张</p></div>}
-      <p className="generation-status" role="status">{generationLabels[batch.status]} · {batch.outputs.length} / {batch.target_count} 张已保存</p>
-      <div className="task-list">{Array.from(latestTasks.values()).map((task) => {
-        const output = batch.outputs.find((asset) => asset.generation_task_id === task.id);
-        return <article className="asset-card" key={task.id}>
-          <div className="asset-info"><strong>结果 {task.slot_index + 1} · 第 {task.attempt_no} 次尝试</strong><p>{generationLabels[task.status]}</p>
-            {output && <a href={output.content_url} target="_blank" rel="noreferrer">查看本次结果（{output.width} × {output.height}）↗</a>}
-            <small>费用：{task.cost_amount === null ? "未知" : task.cost_amount}</small>
-            {task.error_message && <p className="task-error">{task.error_message}</p>}
-            {task.status === "failed" && <button className="order-button" disabled={blocked} onClick={() => void send(`/batches/${batch.batch_id}/retry`, { slot_indices: [task.slot_index] })}>{["download", "persist", "protocol"].includes(task.failure_stage ?? "") ? "恢复原任务" : "重试生成"}</button>}
-            {task.status === "submission_unknown" && <ReconcileForm task={task} disabled={blocked} onSubmit={(path, body) => void send(path, body)} />}
-          </div>
-        </article>;
-      })}</div>
-      <details className="removed-list"><summary>查看全部尝试（{batch.tasks.length}）</summary>{batch.tasks.map((task) => <p className="muted" key={task.id}>结果 {task.slot_index + 1} / 尝试 {task.attempt_no}：{generationLabels[task.status]}{task.error_message ? ` · ${task.error_message}` : ""}</p>)}</details>
-    </>}
-    {loaded && total === 0 && <p className="muted">还没有生成记录。</p>}
+    <div className="section-heading"><h2>{hasResult ? "检查与交付" : "生成头像"}</h2><button type="button" className="text-button" onClick={() => setRefresh((n) => n + 1)}>刷新状态</button></div>
+    {!hasResult && <div className="generation-start">
+      <div className="result-placeholder" aria-hidden="true"><span>◫</span></div>
+      {!readonly && <><button className="order-button primary generate-cta" disabled={blocked || hasOpen || !order.readiness.ready} onClick={() => void send(`/orders/${order.id}/generate`, { config: order.params })}>{hasOpen ? "生成中…" : "生成 1 张头像"}</button></>}
+    </div>}
+    {hasResult && !readonly && <div className="generation-start">
+      <button className="order-button primary" disabled={blocked || hasOpen || !delivery?.items.some((item) => item.asset_id === order.params.base_asset_id)} onClick={() => void send(`/orders/${order.id}/revise`, { config: order.params })}>{hasOpen ? "生成中…" : "生成修改图"}</button></div>}
+    {delivery && <DeliveryPanel data={delivery} actionTarget={actionTarget} disabled={blocked} loaded={loaded && storageReady} pending={!!pending || !!storageError} revisionDirty={revisionDirty}
+      onBusy={onBusy} onStatus={onStatus} onChange={finalsChanged}
+      onRevise={onBase} onLog={onLog} />}
+
+    {showAttention && <section className="generation-log" aria-label="需要处理的状态">
+      <h3>需要处理</h3>
+      <ul className="generation-log-list" aria-live="polite">
+        {baseError && <li className="error" role="alert">{baseError}</li>}
+        {readError && <li className="error" role="alert">状态读取失败：{readError} 已保留最近结果，恢复连接前暂停写操作。</li>}
+        {actionError && <li className="error" role="alert">{actionError}</li>}
+        {storageError && <li className="error" role="alert">{storageError}</li>}
+        {pending && <li className="error">上次提交尚未确认。使用原请求核对，不会更换请求编号。<button type="button" className="order-button small" disabled={disabled || !storageReady} onClick={() => void send(pending.path, pending.body, pending)}>核对上次提交</button></li>}
+        {delivery && !delivery.items.length && delivery.versions.length > 0 && <li>当前尚未指定交付图，请在版本历史中选择一张。</li>}
+        {messages.map((item) => <li className="error" key={item.id}><time>{item.time}</time>{item.message}</li>)}
+        {failedLog && <li className="error"><time>{new Date(failedLog.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}</time>{failedLog.operation === "revision" ? "修改" : "生成"}：{generationLabels[failedLog.status] ?? failedLog.status}{latestError ? ` · ${latestError}` : ""}</li>}
+        {batch && attentionTasks.map((task) => {
+          // 点击事件才读取提交状态；此处只创建处理函数。
+          // eslint-disable-next-line react-hooks/refs
+          if (task.status === "failed") return <li className="error" key={task.id}>任务失败。<button type="button" className="order-button small" disabled={blocked || hasOpen || revisionDirty} onClick={() => retryTask(task)}>{["download", "persist", "protocol"].includes(task.failure_stage ?? "") ? "恢复原任务（不重新生成）" : "重试生成"}</button></li>;
+          if (task.status === "submission_unknown") return <li className="error" key={task.id}>提交结果不明，请先核对供应商是否已受理。<ReconcileForm task={task} disabled={blocked || revisionDirty} onSubmit={reconcileTask} /></li>;
+          return null;
+        })}
+        {needsAttention && !attentionTasks.length && <li className="error">需要核对提交。</li>}
+      </ul>
+    </section>}
   </section>;
 }

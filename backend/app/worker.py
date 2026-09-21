@@ -20,6 +20,7 @@ from app.services.assets import decode_upload
 from app.services.deliveries import set_finals
 from app.services.generation import aggregate, verify_input
 from app.services.orders import BusinessError, write_session
+from app.services.style_preview_worker import recover_previews, step_preview
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -33,8 +34,10 @@ class Worker:
         self.settings = settings
         self.engine = create_db_engine(settings)
         self.provider = provider or ApiiProvider(settings)
+        self.reload_provider_settings = provider is None
         self.poll_seconds = poll_seconds
         self.lock = None
+        self.prefer_preview = False
 
     def __enter__(self):
         self.lock = self.settings.database_path.with_suffix(".worker.lock").open("a+b")
@@ -71,6 +74,7 @@ class Worker:
 
     def recover(self):
         with write_session(self.engine) as session:
+            recover_previews(session)
             tasks = session.scalars(
                 select(GenerationTask).where(GenerationTask.status == "submitting")
             )
@@ -91,6 +95,12 @@ class Worker:
     def step(self) -> bool:
         if self.lock is None:
             raise RuntimeError("Worker 必须持有数据库进程锁")
+        if self.reload_provider_settings:
+            self.provider.settings = Settings()
+        if self.prefer_preview:
+            self.prefer_preview = False
+            if step_preview(self):
+                return True
         with write_session(self.engine) as session:
             task = session.scalar(
                 select(GenerationTask)
@@ -104,13 +114,15 @@ class Worker:
                 .order_by(GenerationTask.next_poll_at, GenerationTask.id)
                 .limit(1)
             )
-            if task is None:
-                return False
-            mode = task.status
-            task.claimed_at = utc_now()
-            if mode == "pending":
-                task.status = "submitting"
-            aggregate(session, session.get(GenerationBatch, task.batch_id))
+            if task is not None:
+                mode = task.status
+                task.claimed_at = utc_now()
+                if mode == "pending":
+                    task.status = "submitting"
+                aggregate(session, session.get(GenerationBatch, task.batch_id))
+        if task is None:
+            return step_preview(self)
+        self.prefer_preview = True
         try:
             if mode == "pending":
                 self._submit(task)
@@ -144,7 +156,7 @@ class Worker:
             aggregate(session, session.get(GenerationBatch, task.batch_id))
 
     def _query(self, task: GenerationTask):
-        result = self.provider.query(task.provider_task_id)
+        result = self.query_provider(task.provider_task_id, task.request_snapshot_json)
         with write_session(self.engine) as session:
             current = session.get(GenerationTask, task.id)
             current.error_code = current.error_message = current.failure_stage = None
@@ -159,6 +171,11 @@ class Worker:
             else:
                 current.next_poll_at = self._next_poll()
             aggregate(session, session.get(GenerationBatch, task.batch_id))
+
+    def query_provider(self, remote_id: str, snapshot: dict):
+        if isinstance(self.provider, ApiiProvider):
+            return self.provider.query(remote_id, snapshot.get("_api_url"))
+        return self.provider.query(remote_id)
 
     def _download(self, task: GenerationTask):
         data = self.provider.download(task.result_metadata_json["url"])

@@ -52,6 +52,13 @@ class LocalProvider:
         self.engine.dispose()
 
     def submit(self, snapshot, images, key):
+        if key.startswith("preview-"):
+            record = {"key": key, "scenario": "QA_STYLE_PREVIEW", "input_count": len(images)}
+            with (self.settings.storage_path / "simulated-submits.jsonl").open(
+                "a", encoding="utf-8"
+            ) as log:
+                log.write(json.dumps(record, ensure_ascii=False) + "\n")
+            return {"task_id": key, "status": "queued"}
         with Session(self.engine) as session:
             task = session.scalar(
                 select(GenerationTask).where(
@@ -89,7 +96,7 @@ class LocalProvider:
                 batch
                 and "QA_PARTIAL"
                 in batch.params_snapshot_json.get("extra_requirement", "")
-                and task.slot_index == 1
+                and task.slot_index == 0
                 and task.attempt_no == 1
             )
         return {
@@ -125,8 +132,8 @@ def main():
         orders = {}
         with TestClient(app) as client:
             for name, scenario in [
-                ("两图成功", "QA_SUCCESS"),
-                ("部分失败", "QA_PARTIAL"),
+                ("单图成功", "QA_SUCCESS"),
+                ("生成失败", "QA_PARTIAL"),
                 ("关联远端", "QA_UNKNOWN_LINK"),
                 ("确认未受理", "QA_UNKNOWN_CONFIRM"),
                 ("风险重发", "QA_UNKNOWN_RISK"),
@@ -137,7 +144,7 @@ def main():
                 response.raise_for_status()
                 order_id = response.json()["id"]
                 for index, role in enumerate(
-                    ["person_main", "person_aux", "person_aux", "reference"]
+                    ["main", "material", "material", "material"]
                 ):
                     response = client.post(
                         f"/api/orders/{order_id}/images",
@@ -156,7 +163,7 @@ def main():
                 response = client.patch(
                     f"/api/orders/{order_id}/params",
                     json={
-                        "hair_source_asset_id": main_id,
+                        "base_asset_id": main_id,
                         "extra_requirement": scenario,
                     },
                 )

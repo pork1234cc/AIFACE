@@ -1,5 +1,7 @@
 """阶段 2 本地订单、素材、风格接口。"""
 
+import logging
+import shutil
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
@@ -18,16 +20,18 @@ from app.schemas.orders import (
     RolePatch,
 )
 from app.services import assets as asset_service
-from app.services import orders
+from app.services import input_slots, orders
+from app.services import styles as style_service
+from app.services.generation import preview_creation
 from app.services.prompts import (
-    build_initial_prompt,
     readiness_errors,
     refresh_readiness,
     validate_sources,
 )
-from app.services.styles import load_style
+from app.services.styles import CustomStyleCreate, CustomStyleUpdate, load_style
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 def detail(session: Session, order_id: str) -> dict:
@@ -65,6 +69,30 @@ def get_order(request: Request, order_id: str):
         return detail(session, order_id)
 
 
+@router.delete("/orders/{order_id}", tags=["订单"])
+def delete_order(request: Request, order_id: str):
+    storage = request.app.state.settings.storage_path.resolve()
+    orders_root = (storage / "orders").resolve()
+    order_dir = storage / "orders" / order_id
+    if (
+        not orders_root.is_relative_to(storage)
+        or order_dir.is_symlink()
+        or order_dir.is_junction()
+        or order_dir.resolve().parent != orders_root
+    ):
+        raise orders.BusinessError(409, "unsafe_order_path", "订单存储路径异常，无法安全删除")
+    with orders.write_session(request.app.state.engine) as session:
+        orders.delete_order(session, order_id)
+    files_removed = True
+    if order_dir.exists():
+        try:
+            shutil.rmtree(order_dir)
+        except OSError:
+            logger.exception("删除订单文件失败：%s", order_id)
+            files_removed = False
+    return {"deleted": True, "files_removed": files_removed}
+
+
 @router.patch("/orders/{order_id}", tags=["订单"])
 def patch_order(request: Request, order_id: str, payload: OrderPatch):
     with orders.write_session(request.app.state.engine) as session:
@@ -77,6 +105,8 @@ def patch_params(request: Request, order_id: str, payload: Params):
     with orders.write_session(request.app.state.engine) as session:
         order = orders.get_order(session, order_id, editable=True)
         params = Params.model_validate(order.params_json | payload.model_dump(exclude_unset=True))
+        if params.style_id:
+            load_style(params.style_id, session)
         assets = orders.get_assets(session, order_id)
         validate_sources(params, assets)
         order.params_json = params.model_dump()
@@ -98,9 +128,10 @@ def ready_order(request: Request, order_id: str):
 def preview_prompt(request: Request, order_id: str, payload: InitialInputs):
     # 只读预检；阶段 3 创建快照时仍须在同一写事务内重新校验。
     with Session(request.app.state.engine) as session:
-        return build_initial_prompt(
-            orders.get_order(session, order_id),
-            orders.get_assets(session, order_id),
+        return preview_creation(
+            session,
+            request.app.state.settings.storage_path,
+            order_id,
             payload,
         )
 
@@ -123,6 +154,28 @@ def upload_image(
             decoded,
         )
         return orders.asset_data(asset)
+
+
+@router.post("/orders/{order_id}/image-slots/{slot}", tags=["素材"])
+def upload_slot(request: Request, order_id: str, slot: str, file: Annotated[UploadFile, File()]):
+    decoded = asset_service.decode_upload(file.file)
+    with orders.write_session(request.app.state.engine) as session:
+        input_slots.update_slot(
+            session,
+            request.app.state.settings.storage_path,
+            order_id,
+            slot,
+            file.filename or "",
+            decoded,
+        )
+        return detail(session, order_id)
+
+
+@router.post("/orders/{order_id}/image-slots/{slot}/clear", tags=["素材"])
+def clear_slot(request: Request, order_id: str, slot: str):
+    with orders.write_session(request.app.state.engine) as session:
+        input_slots.update_slot(session, request.app.state.settings.storage_path, order_id, slot)
+        return detail(session, order_id)
 
 
 @router.patch("/orders/{order_id}/images/{asset_id}/role", tags=["素材"])
@@ -156,10 +209,24 @@ def image_content(request: Request, asset_id: str):
 
 
 @router.get("/styles", tags=["风格"])
-def list_styles():
-    return {"items": [load_style().model_dump()]}
+def list_styles(request: Request):
+    with Session(request.app.state.engine) as session:
+        return {"items": [style.model_dump() for style in style_service.list_styles(session)]}
+
+
+@router.post("/styles", status_code=201, tags=["风格"])
+def create_style(request: Request, payload: CustomStyleCreate):
+    with orders.write_session(request.app.state.engine) as session:
+        return style_service.create_style(session, payload).model_dump()
+
+
+@router.put("/styles/{style_id}", tags=["风格"])
+def update_style(request: Request, style_id: str, payload: CustomStyleUpdate):
+    with orders.write_session(request.app.state.engine) as session:
+        return style_service.update_style(session, style_id, payload).model_dump()
 
 
 @router.get("/styles/{style_id}", tags=["风格"])
-def get_style(style_id: str):
-    return load_style(style_id).model_dump()
+def get_style(request: Request, style_id: str):
+    with Session(request.app.state.engine) as session:
+        return load_style(style_id, session).model_dump()

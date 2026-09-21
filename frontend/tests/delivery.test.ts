@@ -22,7 +22,7 @@ test("下载错误保留业务提示，不把 JSON 当作图片", async (context
 test("拒绝损坏的下载响应和危险文件名", async (context) => {
   context.mock.method(globalThis, "fetch", async () => new Response("bad", {headers:{"Content-Type":"text/html"}}));
   await assert.rejects(fetchDelivery("order-123"), /格式无效/);
-  await assert.rejects(fetchDelivery("../other"), /编号无效/);
+  await assert.rejects(fetchDelivery("../other"), /订单信息无效/);
   context.mock.method(globalThis, "fetch", async () => new Response("image", { headers: {
     "Content-Type": "image/png", "Content-Disposition": 'attachment; filename="../outside.png"',
   } }));

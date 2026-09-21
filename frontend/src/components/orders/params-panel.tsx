@@ -1,38 +1,73 @@
-"use client";
+﻿"use client";
 
-import { useState } from "react";
-import { apiRequest, errorMessage } from "@/lib/api";
-import type { OrderDetail, OrderParams } from "@/types/orders";
+import { useEffect, useRef, useState } from "react";
+import { apiGet, apiRequest, errorMessage } from "@/lib/api";
+import { compactConfig, materialSlots } from "@/lib/creation-config";
+import { validParamsDraft } from "@/lib/order-drafts";
+import { useSessionDraft } from "@/hooks/use-session-draft";
+import { useLeaveGuard } from "@/hooks/use-leave-guard";
+import { aspectSizes, type OrderDetail, type Style } from "@/types/orders";
 
-export function ParamsPanel({ order, disabled, onSave, onBusy, onDirty }: {
-  order: OrderDetail; disabled: boolean; onSave: (order: OrderDetail) => void;
+export function ParamsPanel({ order, disabled, archived = false, onSave, onBusy, onDirty, materialsPanel }: {
+  order: OrderDetail; disabled: boolean; archived?: boolean; onSave: (order: OrderDetail) => void;
   onBusy: (busy: boolean) => void; onDirty: (dirty: boolean) => void;
+  materialsPanel?: React.ReactNode;
 }) {
-  const [params, setParams] = useState(order.params);
+  const draft = useSessionDraft(`aiface:v2:draft:params:${order.id}`, compactConfig(order), validParamsDraft);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
-  const active = order.assets.filter((a) => a.kind === "input" && a.is_active_input);
-  const people = active.filter((a) => a.input_role !== "reference");
-  const clothes = active.filter((a) => params.clothes_mode === "reference" ? a.input_role === "reference" : a.input_role !== "reference");
-  function change(patch: Partial<OrderParams>) { setParams({ ...params, ...patch }); onDirty(true); setSaved(false); }
-  return <section className="order-panel"><h2>创作要求</h2><p className="muted">人物来自主照片，发型与服装可分别指定来源。</p>
-    {error && <div className="order-alert" role="alert">{error}</div>}
-    {saved && <p className="order-notice" role="status">创作要求已保存。</p>}
-    <form onSubmit={async (event) => {
-      event.preventDefault(); onBusy(true); setError("");
-      try {
-        const updated = await apiRequest<OrderDetail>(`/orders/${order.id}/params`, { method: "PATCH", body: params });
-        onDirty(false); setSaved(true); onSave(updated);
-      } catch (cause) { setError(errorMessage(cause)); }
-      finally { onBusy(false); }
-    }}><fieldset className="order-form" disabled={disabled}>
-      <label>发型来源<select value={params.hair_source_asset_id ?? ""} onChange={(event) => change({ hair_source_asset_id: event.target.value || null })}><option value="">请选择本人照片</option>{people.map((asset) => <option key={asset.id} value={asset.id}>{asset.original_name}{asset.input_role === "person_main" ? "（主照片）" : "（辅助）"}</option>)}</select></label>
-      <label className="check-label"><input type="checkbox" checked={params.glasses_keep} onChange={(event) => change({ glasses_keep: event.target.checked })} />保留原有眼镜（取消勾选则去掉）</label>
-      <label>服装处理<select value={params.clothes_mode} onChange={(event) => change({ clothes_mode: event.target.value as OrderParams["clothes_mode"], clothes_source_asset_id: null })}><option value="simplified">简化处理</option><option value="person">跟本人照片</option><option value="reference">跟参考图</option></select></label>
-      {params.clothes_mode !== "simplified" && <label>服装来源<select required value={params.clothes_source_asset_id ?? ""} onChange={(event) => change({ clothes_source_asset_id: event.target.value || null })}><option value="">请选择来源图片</option>{clothes.map((asset) => <option key={asset.id} value={asset.id}>{asset.original_name}</option>)}</select>{clothes.length === 0 && <span className="muted">请先上传并设置对应角色的素材。</span>}</label>}
-      <label>额外要求<textarea maxLength={2000} rows={4} value={params.extra_requirement} onChange={(event) => change({ extra_requirement: event.target.value })} placeholder="例如：头发蓬松一点，脸不要太尖" /></label>
-      <div className="style-tags"><span>固定白底</span><span>1:1 方形</span><span>交付图 1 张</span></div>
-      <div className="order-actions"><button className="order-button primary">保存创作要求</button><button type="button" className="order-button" onClick={() => { setParams(order.params); setError(""); setSaved(false); onDirty(false); }}>撤销未保存修改</button></div>
-    </fieldset></form>
-  </section>;
+  const [styles, setStyles] = useState<Style[]>([]);
+  const [styleError, setStyleError] = useState("");
+  const [reload, setReload] = useState(0);
+  const running = useRef(false);
+  const dirty = draft.dirty && !archived;
+  useLeaveGuard(dirty);
+  useEffect(() => { onDirty(dirty); return () => onDirty(false); }, [dirty, onDirty]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void apiGet<{ items: Style[] }>("/styles", controller.signal).then((data) => { setStyles(data.items); setStyleError(""); })
+      .catch((cause) => { if (!controller.signal.aborted) setStyleError(errorMessage(cause)); });
+    return () => controller.abort();
+  }, [reload]);
+  const locked = disabled || archived || !draft.restored;
+  const config = compactConfig({ ...order, params: archived ? order.params : {
+    ...draft.value, material_slots: materialSlots(order), base_asset_id: order.params.base_asset_id,
+  } });
+  return <>
+    <section className="order-panel compact-style">
+      {styleError && <p className="order-alert" role="alert">{styleError} <button className="text-button" onClick={() => setReload((n) => n + 1)}>重试</button></p>}
+      <div className="style-output-row">
+        <label>风格<select disabled={locked} value={config.style_id ?? ""} onChange={(event) => draft.change({ ...config, style_id: event.target.value || null })}>
+          <option value="">保持原图风格</option>
+          {!styles.some((style) => style.style_id === config.style_id) && config.style_id && <option value={config.style_id}>{config.style_id === "q_crayon_001" ? "柔彩蜡笔" : "当前自定义风格"}</option>}
+          {styles.map((style) => <option key={style.style_id} value={style.style_id}>{style.style_name}</option>)}
+        </select></label>
+        <label>生图尺寸<select disabled={locked} value={config.aspect_ratio} onChange={(event) => draft.change({ ...config, aspect_ratio: event.target.value })}>{Object.keys(aspectSizes).map((ratio) => <option key={ratio}>{ratio}</option>)}</select></label>
+        <label>生图格式<select disabled={locked} value={config.output_format} onChange={(event) => draft.change({ ...config, output_format: event.target.value as "png" | "jpeg" | "webp" })}>
+          <option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option>
+        </select></label>
+      </div>
+    </section>
+    {materialsPanel}
+    <section className="order-panel params-panel" id="order-requirements"><h2>完整提示词</h2>
+      {error && <p className="order-alert" role="alert">{error}</p>}
+      {draft.storageWarning && <p className="order-alert">{draft.storageWarning}</p>}
+      <form onSubmit={async (event) => {
+        event.preventDefault();
+        if (running.current || locked) return;
+        if (draft.value.changes.some((change) => change.source_asset_ids.some((id) => !config.material_slots?.includes(id)))) {
+          setError("原修改项引用了已移出的素材，请在完整提示词中重新指定素材后保存"); return;
+        }
+        if (config.extra_requirement.length > 2000) { setError("完整提示词不能超过2000字，请精简后保存"); return; }
+        running.current = true; onBusy(true); setError("");
+        try {
+          const updated = await apiRequest<OrderDetail>(`/orders/${order.id}/params`, { method: "PATCH", body: config });
+          draft.reset(compactConfig(updated)); onDirty(false); onSave(updated);
+        } catch (cause) { setError(errorMessage(cause)); }
+        finally { running.current = false; onBusy(false); }
+      }}>
+        <textarea aria-label="完整提示词" rows={5} maxLength={2000} disabled={locked} value={config.extra_requirement} onChange={(event) => draft.change({ ...config, extra_requirement: event.target.value })} />
+        {!archived && <div className="order-actions"><button className="order-button" disabled={locked}>{dirty ? "保存修改" : "保存配置"}</button>{dirty && <button type="button" disabled={locked} className="text-button" onClick={() => draft.reset(compactConfig(order))}>撤销修改</button>}</div>}
+      </form>
+    </section>
+  </>;
 }

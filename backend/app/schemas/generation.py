@@ -4,13 +4,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
-from app.schemas.orders import AssetId, InputItem, StrictModel
+from app.schemas.orders import InitialInputs, StrictModel
 
 
-class RevisionRequest(StrictModel):
-    base_asset_id: AssetId
-    instruction: str = Field(min_length=1, max_length=2000, pattern=r"\S")
-    additional_inputs: list[InputItem] = Field(default_factory=list, max_length=3)
+class RevisionRequest(InitialInputs):
+    pass
 
 
 class ReviewRequest(StrictModel):
@@ -19,7 +17,7 @@ class ReviewRequest(StrictModel):
 
 class RetryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    slot_indices: list[StrictInt] = Field(min_length=1, max_length=2)
+    slot_indices: list[StrictInt] = Field(min_length=1, max_length=1)
 
 
 class ReconcileRequest(BaseModel):

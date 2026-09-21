@@ -7,7 +7,15 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.orders import Asset, GenerationAction, GenerationBatch, GenerationTask, utc_now
+from app.config import Settings
+from app.models.orders import (
+    Asset,
+    GenerationAction,
+    GenerationBatch,
+    GenerationTask,
+    OrderDelivery,
+    utc_now,
+)
 from app.schemas.generation import ReconcileRequest, RetryRequest
 from app.schemas.orders import InitialInputs
 from app.services.assets import MAX_BYTES, content_path
@@ -58,16 +66,19 @@ def ensure_available(session: Session, order_id: str, except_batch: str | None =
 
 
 def make_task(session: Session, batch: GenerationBatch, slot: int, attempt: int = 1):
+    model_settings = Settings()
     task = GenerationTask(
         batch_id=batch.id,
         slot_index=slot,
         attempt_no=attempt,
+        model=model_settings.image_model,
         request_snapshot_json={
-            "model": "gpt-image-2.0-4k",
+            "model": model_settings.image_model,
+            "_api_url": model_settings.image_api_url,
             "prompt": batch.prompt_snapshot,
-            "aspect_ratio": "1:1",
-            "quality": "high",
-            "output_format": "png",
+            "aspect_ratio": batch.params_snapshot_json["aspect_ratio"],
+            "quality": model_settings.image_quality,
+            "output_format": batch.params_snapshot_json.get("output_format", "png"),
             "response_format": "url",
             "async": True,
             "inputs": batch.input_snapshot_json,
@@ -106,16 +117,15 @@ def create_initial(
             raise BusinessError(409, "idempotency_conflict", "同一请求编号不能用于不同内容")
         return existing
     ensure_available(session, order_id)
-    order = get_order(session, order_id)
     assets = get_assets(session, order_id)
-    preview = build_initial_prompt(order, assets, payload)
+    preview = preview_creation(session, storage, order_id, payload, "initial")
     by_id = {a.id: a for a in assets}
     snapshots = []
-    for item in payload.inputs:
-        asset = by_id[item.asset_id]
+    for item in preview["inputs"]:
+        asset = by_id[item["asset_id"]]
         verify_input(storage, asset)
         snapshots.append(
-            item.model_dump()
+            item
             | {
                 "relative_path": asset.relative_path,
                 "mime_type": asset.mime_type,
@@ -129,6 +139,7 @@ def create_initial(
         order_id=order_id,
         request_key=key,
         request_hash=digest,
+        base_asset_id=payload.config.base_asset_id,
         input_snapshot_json=snapshots,
         params_snapshot_json=preview["params"],
         style_snapshot_json=preview["style"],
@@ -137,7 +148,44 @@ def create_initial(
     session.add(batch)
     session.flush()
     make_task(session, batch, 0)
+    aggregate(session, batch)
     return batch
+
+
+def preview_creation(
+    session: Session,
+    storage: Path,
+    order_id: str,
+    payload: InitialInputs,
+    operation: str | None = None,
+) -> dict:
+    """预览与提交共用底图版本、素材关系及文件完整性检查。"""
+    order = get_order(session, order_id, editable=True)
+    assets = get_assets(session, order_id)
+    base = next((asset for asset in assets if asset.id == payload.config.base_asset_id), None)
+    if base is None:
+        raise BusinessError(422, "invalid_base", "请选择本订单的编辑底图")
+    if operation == "initial" and base.kind != "input":
+        raise BusinessError(422, "invalid_base", "首次生成需要本单上传主照片")
+    if operation == "revision" and base.kind != "generated":
+        raise BusinessError(422, "invalid_base", "继续修改需要当前交付图")
+    if base.kind == "generated":
+        task = session.get(GenerationTask, base.generation_task_id)
+        current = session.scalar(
+            select(OrderDelivery.asset_id).where(
+                OrderDelivery.order_id == order_id,
+                OrderDelivery.revoked_at.is_(None),
+            )
+        )
+        if base.review_status == "discarded" or task is None or task.status != "succeeded":
+            raise BusinessError(409, "base_unavailable", "底图必须已成功保存且未作废")
+        if current != base.id:
+            raise BusinessError(409, "base_changed", "底图已不是当前交付图，请刷新并重新选择")
+    preview = build_initial_prompt(order, assets, payload, session)
+    by_id = {asset.id: asset for asset in assets}
+    for item in preview["inputs"]:
+        verify_input(storage, by_id[item["asset_id"]])
+    return preview
 
 
 def aggregate(session: Session, batch: GenerationBatch) -> None:
@@ -152,10 +200,16 @@ def aggregate(session: Session, batch: GenerationBatch) -> None:
     else:
         batch.status = "partial_failed" if "succeeded" in statuses else "failed"
     batch.finished_at = None if batch.status in OPEN_STATUSES else utc_now()
-    if "succeeded" in statuses:
-        order = get_order(session, batch.order_id)
-        if order.status not in {"completed", "closed"}:
-            order.status, order.updated_at = "review", utc_now()
+    order = get_order(session, batch.order_id)
+    if order.status not in {"completed", "closed"}:
+        if batch.status == "succeeded":
+            next_status = "review"
+        elif batch.status in OPEN_STATUSES:
+            next_status = "modifying" if batch.operation == "revision" else "generating"
+        else:
+            next_status = "review" if batch.operation == "revision" else "draft"
+        if order.status != next_status:
+            order.status, order.updated_at = next_status, utc_now()
 
 
 def action_replay(session: Session, scope: str, key: str, payload: dict):
@@ -281,6 +335,8 @@ def batch_data(session: Session, batch: GenerationBatch) -> dict:
         "base_asset_id": batch.base_asset_id,
         "revision_instruction": batch.revision_instruction,
         "style_version": batch.style_snapshot_json.get("version"),
+        "config": batch.params_snapshot_json,
+        "prompt": batch.prompt_snapshot,
         "inputs": [
             {"asset_id": item["asset_id"], "role": item["role"]}
             for item in batch.input_snapshot_json

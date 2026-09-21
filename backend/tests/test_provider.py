@@ -1,9 +1,13 @@
 """供应商协议与错误分类，不访问真实网络。"""
 
+import base64
+import hashlib
+import io
 import json
 
 import httpx
 import pytest
+from PIL import Image
 
 from app.config import Settings
 from app.providers.apii import ApiiProvider, ProviderError, parse_result
@@ -25,6 +29,36 @@ def test_four_images_and_single_submit():
         assert body["images"] == ["YQ==", "Yg==", "Yw==", "ZA=="]
         assert requests[0].headers["Idempotency-Key"] == "stable"
         assert "n" not in body
+    finally:
+        provider.close()
+
+
+def test_large_generated_png_is_compacted_for_provider_without_changing_source():
+    pixels = hashlib.shake_256(b"large-generated-image").digest(1600 * 1600 * 3)
+    picture = Image.frombytes("RGB", (1600, 1600), pixels)
+    source = io.BytesIO()
+    picture.save(source, format="PNG")
+    original = source.getvalue()
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(202, json={"task_id": "large-image", "status": "queued"})
+
+    provider = ApiiProvider(
+        Settings(_env_file=None, image_api="secret"), httpx.MockTransport(handler)
+    )
+    try:
+        provider.submit({"async": True}, [original, b"small"], "large-image-key")
+        assert len(seen) == 1
+        assert len(seen[0].content) < 5 * 1024 * 1024
+        sent = json.loads(seen[0].content)["images"]
+        compacted = base64.b64decode(sent[0])
+        with Image.open(io.BytesIO(compacted)) as delivered:
+            assert delivered.format == "JPEG"
+            assert delivered.size == (1600, 1600)
+        assert base64.b64decode(sent[1]) == b"small"
+        assert original == source.getvalue()
     finally:
         provider.close()
 
