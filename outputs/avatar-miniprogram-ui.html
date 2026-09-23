@@ -1,0 +1,152 @@
+<div id="avatar-mini-proposal" aria-label="微信头像小程序界面草图">
+  <style>
+    #avatar-mini-proposal{--af-bg:light-dark(#f7f8f5,#171d19);--af-panel:light-dark(#ffffff,#232c26);--af-ink:light-dark(#202724,#eef3ee);--af-muted:light-dark(#626d65,#b2bfb5);--af-soft:light-dark(#e9efe7,#303d33);--af-line:light-dark(#dbe3da,#435247);--af-brand:#24694f;--af-radius:16px;color:var(--af-ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;width:100%}
+    #avatar-mini-proposal *{box-sizing:border-box}
+    #avatar-mini-proposal .af-phone{max-width:390px;margin:auto;background:var(--af-bg);border:1px solid var(--af-line);border-radius:26px;overflow:hidden}
+    #avatar-mini-proposal .af-header{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;background:var(--af-panel)}
+    #avatar-mini-proposal .af-brand{font-weight:650;letter-spacing:1px;font-size:16px}
+    #avatar-mini-proposal .af-capsule{border:1px solid var(--af-line);border-radius:20px;padding:3px 12px;letter-spacing:4px}
+    #avatar-mini-proposal .af-content{padding:20px 16px;min-height:445px}
+    #avatar-mini-proposal h2{font-family:inherit;font-size:24px;font-weight:650;line-height:1.3;margin:0 0 6px;letter-spacing:-.5px}
+    #avatar-mini-proposal h3{font-size:16px;margin:22px 0 12px}
+    #avatar-mini-proposal p{margin:6px 0 16px}
+    #avatar-mini-proposal .af-muted{color:var(--af-muted);font-size:12px}
+    #avatar-mini-proposal button{font:inherit;color:inherit;border:0;min-height:44px;background:var(--af-panel);padding:10px 14px;border-radius:12px}
+    #avatar-mini-proposal button:disabled{opacity:.5}
+    #avatar-mini-proposal .af-primary{background:var(--af-brand);color:#fff;width:100%;font-weight:600}
+    #avatar-mini-proposal .af-secondary{width:100%;margin-top:8px;border:1px solid var(--af-line)}
+    #avatar-mini-proposal .af-banner{background:var(--af-soft);border-radius:var(--af-radius);padding:14px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin:18px 0}
+    #avatar-mini-proposal .af-banner button{font-size:12px;flex-shrink:0}
+    #avatar-mini-proposal .af-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    #avatar-mini-proposal .af-style{padding:0;text-align:left;border-radius:var(--af-radius);overflow:hidden;border:1px solid var(--af-line)}
+    #avatar-mini-proposal .af-style-label{display:block;padding:10px 11px}
+    #avatar-mini-proposal .af-portrait{position:relative;aspect-ratio:1;background:#e9decf;overflow:hidden}
+    #avatar-mini-proposal .af-hair{position:absolute;background:#403a34;width:43%;height:49%;left:28%;top:16%;border-radius:48% 48% 35% 35%;transform:rotate(-5deg)}
+    #avatar-mini-proposal .af-head{position:absolute;background:#e9bc99;width:31%;height:37%;left:34%;top:25%;border-radius:45% 45% 46% 46%}
+    #avatar-mini-proposal .af-head:before{content:'';position:absolute;left:24%;top:44%;width:7%;height:6%;border-radius:50%;background:#473c33;box-shadow:24px 0 #473c33}
+    #avatar-mini-proposal .af-head:after{content:'';position:absolute;left:39%;top:70%;width:25%;height:9%;border-bottom:2px solid #995f4e;border-radius:50%}
+    #avatar-mini-proposal .af-body{position:absolute;left:16%;bottom:-16%;width:68%;height:55%;border-radius:48% 48% 0 0;background:#759282}
+    #avatar-mini-proposal .af-style-1{background:#e4dce9}#avatar-mini-proposal .af-style-1 .af-body{background:#a599b9}#avatar-mini-proposal .af-style-1 .af-hair{background:#454354}
+    #avatar-mini-proposal .af-style-2{background:#f2e2cc}#avatar-mini-proposal .af-style-2 .af-body{background:#ce8e65}#avatar-mini-proposal .af-style-2 .af-head{box-shadow:inset -8px -5px 10px #cfa681}
+    #avatar-mini-proposal .af-style-3{background:#dce7df}#avatar-mini-proposal .af-style-3 .af-body{background:#526a60}#avatar-mini-proposal .af-style-3 .af-hair{background:#2b3934}
+    #avatar-mini-proposal .af-sample{position:absolute;bottom:8px;left:8px;background:#ffffffdf;color:#41483e;border-radius:6px;padding:2px 6px;font-size:11px}
+    #avatar-mini-proposal .af-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:10px 10px 18px;background:var(--af-panel);border-top:1px solid var(--af-line)}
+    #avatar-mini-proposal .af-nav button{font-size:12px;border-radius:10px;display:grid;justify-items:center;gap:4px}
+    #avatar-mini-proposal .af-nav button[aria-pressed=true]{background:var(--af-soft);font-weight:650}
+    #avatar-mini-proposal .af-upload{display:grid;place-items:center;text-align:center;min-height:175px;border:1px dashed var(--af-line);border-radius:var(--af-radius);width:100%;margin:20px 0}
+    #avatar-mini-proposal .af-photo{max-width:235px;margin:18px auto;border-radius:var(--af-radius)}
+    #avatar-mini-proposal .af-row{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--af-line)}
+    #avatar-mini-proposal .af-package{display:flex;justify-content:space-between;align-items:center;width:100%;border:1px solid var(--af-line);margin:10px 0;text-align:left;padding:16px}
+    #avatar-mini-proposal .af-package[aria-pressed=true]{border:2px solid var(--af-brand);background:var(--af-soft)}
+    #avatar-mini-proposal .af-back{padding:0;min-height:36px;background:transparent;color:var(--af-muted);margin-bottom:12px}
+    #avatar-mini-proposal .af-check{display:flex;align-items:start;gap:8px;margin:20px 0;font-size:12px;color:var(--af-muted)}
+    #avatar-mini-proposal .af-check input{margin-top:4px;width:18px;height:18px}
+    #avatar-mini-proposal .af-message{padding:0 16px;color:var(--af-muted);font-size:12px;background:var(--af-bg)}
+    #avatar-mini-proposal .af-message:empty{display:none}
+    #avatar-mini-proposal .af-modes{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:5px;margin:18px 0;background:var(--af-soft);border-radius:14px}
+    #avatar-mini-proposal .af-modes button{background:transparent;padding:10px 5px}
+    #avatar-mini-proposal .af-modes button[aria-pressed=true]{background:var(--af-panel);font-weight:650}
+    #avatar-mini-proposal .af-reference{background:var(--af-panel);padding:14px;border:1px solid var(--af-line);border-radius:var(--af-radius);margin:12px 0}
+    #avatar-mini-proposal .af-reference-picture{background:var(--af-soft);border-radius:10px;padding:22px 12px;text-align:center;margin-bottom:12px}
+    #avatar-mini-proposal .af-reference label{display:block;font-size:13px;margin:8px 0}
+    #avatar-mini-proposal textarea,#avatar-mini-proposal select{font-family:inherit;font-size:16px;line-height:1.5;color:var(--af-ink);background:var(--af-bg);border:1px solid var(--af-line);border-radius:10px;width:100%;padding:10px;min-width:0}
+    #avatar-mini-proposal textarea{resize:vertical;min-height:94px}
+    #avatar-mini-proposal .af-field-label{display:block;margin:18px 0 8px}
+  </style>
+  <div class="af-phone">
+    <header class="af-header"><span class="af-brand">AIFACE · 头像</span><span class="af-capsule" aria-label="微信胶囊示意">··· ◉</span></header>
+    <main class="af-content"></main>
+    <div class="af-message" role="status" aria-live="polite"></div>
+    <nav class="af-nav" aria-label="主导航">
+      <button type="button" data-page="home"><i data-lucide="sparkles" aria-hidden="true"></i>做头像</button>
+      <button type="button" data-page="works"><i data-lucide="images" aria-hidden="true"></i>我的作品</button>
+      <button type="button" data-page="account"><i data-lucide="user-round" aria-hidden="true"></i>我的</button>
+    </nav>
+  </div>
+  <script>
+    (() => {
+      const root = document.getElementById('avatar-mini-proposal');
+      const main = root.querySelector('.af-content');
+      const message = root.querySelector('.af-message');
+      const names = ['柔彩蜡笔','日系动漫','黏土公仔','国风水墨'];
+      const state = {page:'home',mode:'photo',style:null,references:[],logged:false,photo:false,credits:3,works:[],pack:10};
+      const design = {accent:'#24694f',radius:16};
+      const pages = ['home','create','login','result','works','account','purchase'];
+      function portrait(index,extra='') {
+        return `<div class="af-portrait af-style-${index} ${extra}" role="img" aria-label="${names[index]}头像构图占位示意，非真实模型样张"><div class="af-hair"></div><div class="af-head"></div><div class="af-body"></div><span class="af-sample">构图占位示意</span></div>`;
+      }
+      function modePicker() {
+        return `<div class="af-modes" role="group" aria-label="创作模式"><button type="button" data-mode="photo" aria-pressed="${state.mode==='photo'}">主照片生成</button><button type="button" data-mode="reference" aria-pressed="${state.mode==='reference'}">参考图编辑</button></div>`;
+      }
+      function referenceFields() {
+        return `<h3>参考图 · 只提取你指定的元素</h3>${state.references.map((_,i)=>`<section class="af-reference"><div class="af-reference-picture">参考图 ${i+1} · 已添加占位图片<br><span class="af-muted">正式版显示你上传的参考图</span></div><label for="af-instruction-${i}">提取什么，改到哪里？</label><textarea id="af-instruction-${i}" data-instruction="${i}" placeholder="例如：提取这张图的帽子，戴到主照片人物头上；保留原发型和背景。"></textarea></section>`).join('')}<button type="button" class="af-secondary" data-action="reference">＋ ${state.references.length?'继续添加参考图':'上传参考图'}</button><p class="af-muted">主照片决定人物，参考图提供指定元素</p>`;
+      }
+      function applySaved(snapshot) {
+        const saved = snapshot?.privateContent;
+        if (!saved || typeof saved !== 'object') return;
+        if(pages.includes(saved.page)) state.page=saved.page;
+        if(Number.isInteger(saved.style)&&saved.style>=0&&saved.style<4) state.style=saved.style;
+        if(typeof saved.logged==='boolean') state.logged=saved.logged;
+        if(typeof saved.photo==='boolean') state.photo=saved.photo;
+        if(['photo','reference'].includes(saved.mode))state.mode=saved.mode;
+        if(Array.isArray(saved.references))state.references=saved.references.filter(r=>typeof r==='string').map(r=>r.slice(0,500));
+        if(Number.isInteger(saved.credits)&&saved.credits>=0&&saved.credits<=3) state.credits=saved.credits;
+        if(Array.isArray(saved.works)) state.works=saved.works.filter(i=>Number.isInteger(i)&&i>=0&&i<4).slice(0,3);
+        if([10,30,60].includes(saved.pack)) state.pack=saved.pack;
+      }
+      function persist() {
+        const snapshot={...state};
+        if(JSON.stringify(snapshot).length>3000)delete snapshot.references;
+        if(window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{platform:'微信小程序',mode:state.mode==='photo'?'主照片生成':'参考图编辑',selectedStyle:names[state.style] || '尚未选择',page:state.page},privateContent:snapshot}).catch(()=>{});
+      }
+      function render() {
+        root.style.setProperty('--af-brand',design.accent);
+        root.style.setProperty('--af-radius',`${design.radius}px`);
+        const back = '<button class="af-back" type="button" data-page="home">← 返回做头像</button>';
+        if(state.page==='home') main.innerHTML=`<h2>换个头像，换种心情</h2><p class="af-muted">发现不同风格，也能编辑喜欢的细节</p>${modePicker()}<div class="af-banner"><div><strong>${state.logged?'剩余 '+state.credits+' 次':'新人免费生成 3 张'}</strong><div class="af-muted">两种模式共用 · 失败不扣次</div></div><button type="button" data-page="${state.logged?'purchase':'login'}">${state.logged?'购买次数':'去领取'}</button></div>${state.mode==='reference'?'<p>上传主照片和参考图，指定提取的元素，再选择成图风格。</p><button type="button" class="af-primary" data-action="start-edit">开始参考图编辑</button>':''}<h3>选一个喜欢的风格</h3><div class="af-grid">${names.map((n,i)=>`<button class="af-style" type="button" data-style="${i}">${portrait(i)}<span class="af-style-label">${n} <span class="af-muted">→</span></span></button>`).join('')}</div>`;
+        if(state.page==='login') main.innerHTML=`${back}<h2>开启你的头像创作</h2><p class="af-muted">首次登录自动注册，赠送 3 次生成机会</p>${portrait(0,'af-photo')}<label class="af-check"><input type="checkbox" data-consent>我已阅读并同意用户协议与隐私政策（草图占位）</label><button type="button" class="af-primary" data-action="login" disabled>登录并领取 3 次</button><p class="af-muted">原型演示，不连接微信账号</p>`;
+        if(state.page==='create') main.innerHTML=`${back}<h2>制作我的头像</h2>${modePicker()}<h3>主照片 · 作为基础画面</h3>${state.photo?portrait(0,'af-photo'):'<button type="button" class="af-upload" data-action="photo"><span>＋ 上传主照片<br><span class="af-muted">清晰正脸 · 单人 · 光线充足<br>草图点击后使用占位照片</span></span></button>'}${state.mode==='reference'?referenceFields():''}<label for="af-style-choice" class="af-field-label">成图风格 · 必选</label><select id="af-style-choice" data-style-choice required><option value="" disabled ${state.style===null?'selected':''}>请选择成图风格</option>${names.map((n,i)=>`<option value="${i}" ${i===state.style?'selected':''}>${n}</option>`).join('')}</select><div class="af-row"><span>生成数量</span><strong>1 张 · 方形头像</strong></div><div class="af-row"><span>可用次数</span><span>${state.credits} 次 · 两种模式共用</span></div><p class="af-muted">${state.mode==='reference'?'指定元素与主体统一呈现为所选风格，尽量保留未指定修改的内容':'照片仅用于制作你的头像，作品默认私有'}</p><button type="button" class="af-primary" data-action="generate">${state.credits?(state.mode==='reference'?'生成编辑后的头像 · 使用 1 次':'生成头像 · 使用 1 次'):'次数用完了 · 去购买'}</button><p class="af-muted">演示流程，不上传照片或调用模型</p>`;
+        if(state.page==='result') main.innerHTML=`<h2>你的新头像做好了</h2><p class="af-muted">${names[state.style]} · AI 生成</p>${portrait(state.style,'af-photo')}<button type="button" class="af-primary" data-action="save">保存头像</button><button type="button" class="af-secondary" data-page="home">换个风格再做一张</button><p class="af-muted">再次生成消耗 1 次，重复保存不扣次</p>`;
+        if(state.page==='works') main.innerHTML=`<h2>我的作品</h2><p class="af-muted">每一个风格，都是你</p>${state.works.length?'<div class="af-grid">'+state.works.map((i)=>`<button type="button" class="af-style" data-result="${i}">${portrait(i)}<span class="af-style-label">${names[i]} · 已完成</span></button>`).join('')+'</div>':'<div class="af-banner">还没有作品，先做一张喜欢的头像吧</div><button type="button" class="af-primary" data-page="home">去选风格</button>'}`;
+        if(state.page==='account') main.innerHTML=`<h2>${state.logged?'你好，头像创作者':'欢迎来到 AIFACE'}</h2><p class="af-muted">${state.logged?'让头像更像你':'登录后，免费生成 3 张头像'}</p><div class="af-banner"><div><strong>${state.logged?state.credits+' 次可用':'3 次新人礼'}</strong><div class="af-muted">${state.logged?'免费 '+state.credits+' 次 · 已购 0 次':'首次登录即可领取'}</div></div><button type="button" data-page="${state.logged?'purchase':'login'}">${state.logged?'购买次数':'去登录'}</button></div>${['购买记录','帮助与反馈','隐私与账号'].map(n=>`<div class="af-row"><span>${n}</span><span class="af-muted">规划中</span></div>`).join('')}`;
+        if(state.page==='purchase') main.innerHTML=`<button type="button" class="af-back" data-page="create">← 返回制作</button><h2>继续创作你的头像</h2><p class="af-muted">当前剩余 ${state.credits} 次 · 按次购买</p>${[10,30,60].map(n=>`<button type="button" class="af-package" data-pack="${n}" aria-pressed="${state.pack===n}"><span><strong>${n} 次生成</strong><br><span class="af-muted">${n===10?'尝鲜使用':n===30?'常换常新':'多种风格慢慢选'}</span></span><span>价格待定</span></button>`).join('')}<p class="af-muted">成功生成才扣次 · 失败自动返还<br>价格、退款规则和支付方式将在上线前确认</p><button type="button" class="af-primary" disabled>购买 ${state.pack} 次 · 待定价</button><p class="af-muted">方案预览，未接入真实支付</p>`;
+        root.querySelectorAll('.af-nav button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.page===state.page || (b.dataset.page==='home'&&['create','result','login'].includes(state.page)) || (b.dataset.page==='account'&&state.page==='purchase'))));
+        root.querySelectorAll('button').forEach(b=>b.classList.add('cursor-interaction'));
+        root.querySelectorAll('[data-instruction]').forEach(field=>{field.value=state.references[Number(field.dataset.instruction)] || '';});
+      }
+      root.addEventListener('input',event=>{if(event.target.matches('[data-instruction]'))state.references[Number(event.target.dataset.instruction)]=event.target.value.slice(0,500);});
+      root.addEventListener('change',event=>{
+        if(event.target.matches('[data-consent]')) root.querySelector('[data-action="login"]').disabled=!event.target.checked;
+        if(event.target.matches('[data-style-choice]')){const choice=event.target.value;state.style=/^[0-3]$/.test(choice)?Number(choice):null;render();persist();}
+      });
+      root.addEventListener('click',event=>{
+        const button=event.target.closest('button');
+        if(!button||!root.contains(button)||button.disabled)return;
+        message.textContent='';
+        if(button.dataset.page)state.page=button.dataset.page;
+        if(button.dataset.mode)state.mode=button.dataset.mode;
+        if(button.dataset.style!==undefined){state.style=Number(button.dataset.style);state.page=state.logged?'create':'login';}
+        if(button.dataset.action==='start-edit'){state.page=state.logged?'create':'login';}
+        if(button.dataset.result!==undefined){state.style=Number(button.dataset.result);state.page='result';}
+        if(button.dataset.pack){state.pack=Number(button.dataset.pack);}
+        if(button.dataset.action==='login'){state.logged=true;state.page='create';}
+        if(button.dataset.action==='photo'){state.photo=true;}
+        if(button.dataset.action==='reference'){state.references.push('');}
+        if(button.dataset.action==='generate'){
+          if(!state.logged)state.page='login';
+          else if(!state.credits)state.page='purchase';
+          else if(!state.photo)message.textContent='请先点击上传照片，体验示意流程。';
+          else if(state.mode==='reference'&&!state.references.length)message.textContent='请添加参考图，并说明要提取的元素。';
+          else if(state.mode==='reference'&&state.references.some(text=>!text.trim()))message.textContent='请逐张说明提取什么元素，以及修改主照片的哪个位置。';
+          else if(!Number.isInteger(state.style)||!names[state.style])message.textContent='请选择成图风格后再生成。';
+          else{state.credits--;state.works.push(state.style);state.page='result';message.textContent='演示完成：实际生成将显示排队与制作状态。';}
+        }
+        if(button.dataset.action==='save')message.textContent='这里演示保存入口，正式版将保存真实生成的头像。';
+        render();persist();
+      });
+      applySaved(window.openai?.widgetState);render();
+      window.addEventListener('openai:set_globals',event=>{applySaved(event.detail?.globals?.widgetState);render();});
+      if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSelect(design,'accent',{label:'品牌强调色',options:[{label:'松绿色',value:'#24694f'},{label:'柔和紫',value:'#6850a1'}]});tweak.addSlider(design,'radius',{label:'卡片圆角',min:8,max:24,unit:'px'});}
+    })();
+  </script>
+</div>
