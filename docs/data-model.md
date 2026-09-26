@@ -23,6 +23,8 @@
 
 ## 配置与快照
 
+2026-09-26：params_json 新增 region_asset_id（可空资产编号）、region_prompts（默认 []）。每项包含 id、label、target_description、origin、source_asset_ids、instruction、preserve_instruction；最多 20 项。区域提示词随任务 params_snapshot_json 固定，不新增表或迁移。识别蒙版仅作界面临时状态，不入数据库、浏览器草稿或供应商输入。区域存在时 region_asset_id 必须等于本次 base_asset_id；主照片替换不丢弃旧文字，先提示用户核对。素材引用绑定不可变资产 ID，不因固定编号被复用而自动转移。
+
 配置字段：schema_version=2、base_asset_id、style_id（q_crayon_001、自定义风格编号或 null）、changes、extra_requirement、aspect_ratio、output_format（png/jpeg/webp，默认 png）。订单模型请求的模型、quality 和接口地址从全局模型设置读取，并在每次任务创建时写入请求快照；quality 默认 high。
 
 每个 changes 项保存 target_description、change_type、source_asset_ids、instruction、preserve_instruction。一个素材可用于多个修改项，同一项可引用多个素材；模型输入按首次引用顺序去重，素材数量不设固定上限。结构化项为空合法，文字修改可不引用素材。

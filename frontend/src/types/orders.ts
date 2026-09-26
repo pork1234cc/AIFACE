@@ -19,11 +19,36 @@ export const aspectSizes: Record<string, string> = {
   "5:4": "3200×2560", "1:1": "2880×2880", "4:5": "2560×3200", "2:3": "2336×3504",
   "3:4": "2448×3264", "9:16": "2160×3840", "9:21": "1648×3840",
 };
+export interface RegionPrompt {
+  id: string;
+  label: string;
+  target_description: string;
+  origin: "detected" | "manual";
+  source_asset_ids: string[];
+  instruction: string;
+  preserve_instruction: string;
+}
+export interface DetectedRegion {
+  id: string;
+  label: string;
+  target_description: string;
+  origin: "detected";
+  mask_value: number;
+}
+export interface RegionDetection {
+  asset_id: string;
+  regions: DetectedRegion[];
+  mask_url: string;
+  width: number;
+  height: number;
+}
 export interface OrderParams {
   schema_version: 2;
   base_asset_id: string | null;
   style_id: string | null;
   changes: ChangeItem[];
+  region_asset_id?: string | null;
+  region_prompts?: RegionPrompt[];
   material_slots?: (string | null)[] | null;
   aspect_ratio: string;
   output_format: "png" | "jpeg" | "webp";

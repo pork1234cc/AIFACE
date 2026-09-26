@@ -1,5 +1,6 @@
 import { aspectSizes } from "../types/orders.ts";
 import type { OrderParams } from "../types/orders.ts";
+import { validRegionPrompts } from "./region-prompts.ts";
 export type InfoDraft = { customer_name: string; note: string };
 export function validInfoDraft(value: unknown): value is InfoDraft {
   if (!value || typeof value !== "object") return false;
@@ -16,6 +17,8 @@ export function validParamsDraft(value: unknown): value is OrderParams {
     && typeof item.aspect_ratio === "string" && Object.hasOwn(aspectSizes, item.aspect_ratio)
     && (item.output_format === undefined || ["png", "jpeg", "webp"].includes(item.output_format as string))
     && typeof item.extra_requirement === "string" && item.extra_requirement.length <= 2000
+    && (item.region_asset_id == null || typeof item.region_asset_id === "string")
+    && (item.region_prompts === undefined || validRegionPrompts(item.region_prompts))
     && (item.material_slots == null || (Array.isArray(item.material_slots)
       && item.material_slots.length >= 3 && item.material_slots.every((id) => id === null || typeof id === "string")))
     && Array.isArray(item.changes) && item.changes.length <= 20

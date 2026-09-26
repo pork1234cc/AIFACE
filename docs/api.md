@@ -1,5 +1,29 @@
 # 统一创作 API 契约
 
+## 区域提示词（2026-09-26）
+
+统一配置增加可选 `region_asset_id`（默认 null）和 `region_prompts`（默认 []，最多 20 项）。与 `material_slots` 同时使用，不改变既有 `changes` 协议。每项示例：
+
+```json
+{
+  "id": "hair",
+  "label": "头发",
+  "target_description": "画面左侧人物的头发",
+  "origin": "detected",
+  "source_asset_ids": ["素材资产UUID"],
+  "instruction": "仅参考发色",
+  "preserve_instruction": "保留发型和长度"
+}
+```
+
+id 为 1～64 位字母、数字、下划线或连字符，列表内唯一；label/target_description 为去空白后 1～100 字；origin 为 detected/manual；两个要求各最多 2000 字，可空。单区域最多引用 100 个素材资产。引用素材时必须填写修改用途。服务端核验素材属于本单、仍活动且存在于当前素材位置；同号替换不能自动继承旧引用。
+
+非空 region_prompts 必须绑定当前 base_asset_id，否则拒绝保存/预览/生成并提示核对。完全空白的区域不产生修改指令；仅填写保留要求合法。非空区域要求以自然语言目标和真实图片输入序号组装，整体要求仍来自 extra_requirement。不向供应商发送识别蒙版，也不承诺像素锁定。新字段随任务快照固定，预览与生成共用同一组装函数。
+
+`POST /orders/{order_id}/images/{asset_id}/regions`：无正文，只识别当前实际编辑底图。校验图片归属、活动主照片及文件完整性；不保存参数、不创建生成任务、不访问供应商。返回 `asset_id`、`regions`、`mask_url`（512×512 RGB PNG data URL）、width/height。每个候选含 id/label/target_description/origin/mask_value；红通道值为对应 mask_value，0 为未纳入候选。蒙版仅用于界面点击与高亮，不保存到草稿或任务。
+
+错误：404 image_not_found；409 region_base_changed/region_model_busy；422 portrait_not_found；503 region_model_unavailable/region_inference_failed。识别失败仍支持手动添加区域。安装方式及已测边界见 [区域提示词设计](region-prompts.md)。
+
 更新：2026-09-21。统一前缀 `/api`，仅支持新流程，不映射旧请求。错误为 `{error:{code,message,request_id}}`；不回显密钥、Base64 或内部文件路径。
 
 ## 统一配置

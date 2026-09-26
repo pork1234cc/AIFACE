@@ -20,9 +20,9 @@ from app.schemas.orders import (
     RolePatch,
 )
 from app.services import assets as asset_service
-from app.services import input_slots, orders
+from app.services import input_slots, orders, regions
 from app.services import styles as style_service
-from app.services.generation import preview_creation
+from app.services.generation import preview_creation, verify_input
 from app.services.prompts import (
     readiness_errors,
     refresh_readiness,
@@ -206,6 +206,23 @@ def image_content(request: Request, asset_id: str):
             content_disposition_type="inline",
             headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"},
         )
+
+
+@router.post("/orders/{order_id}/images/{asset_id}/regions", tags=["素材"])
+def recognize_image_regions(request: Request, order_id: str, asset_id: str):
+    with Session(request.app.state.engine) as session:
+        order = orders.get_order(session, order_id)
+        asset = session.get(Asset, asset_id)
+        if asset is None or asset.order_id != order_id:
+            raise orders.BusinessError(404, "image_not_found", "图片不存在")
+        if Params.model_validate(order.params_json).base_asset_id != asset_id or (
+            asset.kind == "input" and (not asset.is_active_input or asset.input_role != "main")
+        ):
+            raise orders.BusinessError(
+                409, "region_base_changed", "编辑底图已变化，请刷新后重新识别"
+            )
+        data = verify_input(request.app.state.settings.storage_path, asset)
+    return {"asset_id": asset_id, **regions.recognize_regions(data)}
 
 
 @router.get("/styles", tags=["风格"])

@@ -47,7 +47,8 @@ function OrderWorkspace({ initial }: { initial: OrderDetail }) {
           selectingBase.current = true; onBusy(true); setBaseError("");
           try {
             updated(await apiRequest<OrderDetail>(`/orders/${order.id}/params`, { method: "PATCH", body: {
-              ...order.params, changes: [], extra_requirement: "", style_id: null, ...config, base_asset_id: asset.id,
+              ...order.params, changes: [], extra_requirement: "", style_id: null,
+              region_asset_id: null, region_prompts: [], ...config, base_asset_id: asset.id,
             } }));
           } catch (cause) { setBaseError(errorMessage(cause)); }
           finally { selectingBase.current = false; onBusy(false); }

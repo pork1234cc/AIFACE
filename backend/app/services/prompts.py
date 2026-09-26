@@ -13,6 +13,23 @@ from app.services.styles import load_style
 def validate_sources(params: Params, assets: list[Asset]) -> None:
     active = {a.id: a for a in assets if a.kind == "input" and a.is_active_input}
     ids = {key for change in params.changes for key in change.source_asset_ids}
+    if params.region_prompts:
+        if not params.base_asset_id or params.region_asset_id != params.base_asset_id:
+            raise BusinessError(422, "stale_regions", "底图已变化，请核对并重新关联区域要求")
+        region_ids = [region.id for region in params.region_prompts]
+        if len(region_ids) != len(set(region_ids)):
+            raise BusinessError(422, "duplicate_region", "区域编号不能重复")
+        for region in params.region_prompts:
+            if region.source_asset_ids and not region.instruction:
+                raise BusinessError(
+                    422, "missing_region_instruction", f"请填写{region.label}的素材用途"
+                )
+            if params.material_slots is not None and any(
+                key not in params.material_slots for key in region.source_asset_ids
+            ):
+                raise BusinessError(
+                    422, "invalid_source", f"{region.label}引用的素材已移出，请重新选择"
+                )
     if params.material_slots is not None:
         if params.changes:
             raise BusinessError(422, "mixed_instructions", "请将逐项修改合并到额外提示词")
@@ -20,13 +37,17 @@ def validate_sources(params: Params, assets: list[Asset]) -> None:
         if len(supplied) != len(set(supplied)):
             raise BusinessError(422, "duplicate_material", "不同素材位置不能重复引用同一图片")
         ids = set(supplied)
+        instructions = [params.extra_requirement]
+        for region in params.region_prompts:
+            instructions.extend([region.instruction, region.preserve_instruction])
         for match in re.finditer(
-            r"素材(?:图)?\s*([1-9][0-9]*|[一二三四五六七八九十])", params.extra_requirement
+            r"素材(?:图)?\s*([1-9][0-9]*|[一二三四五六七八九十])", "\n".join(instructions)
         ):
             token = match.group(1)
             number = int(token) if token.isdigit() else "一二三四五六七八九十".index(token) + 1
             if number > len(params.material_slots) or params.material_slots[number - 1] is None:
                 raise BusinessError(422, "missing_material", f"提示词引用的素材{number}尚未上传")
+    ids.update(key for region in params.region_prompts for key in region.source_asset_ids)
     for key in ids:
         if key not in active or active[key].input_role != "material":
             raise BusinessError(
@@ -41,6 +62,17 @@ def validate_sources(params: Params, assets: list[Asset]) -> None:
                 422, "conflicting_changes", "同一对象同一用途存在不同要求，请合并澄清后提交"
             )
         seen[key] = value
+    regions_seen = {}
+    for region in params.region_prompts:
+        if not (region.instruction or region.preserve_instruction):
+            continue
+        value = (region.instruction, tuple(region.source_asset_ids), region.preserve_instruction)
+        if (
+            region.target_description in regions_seen
+            and regions_seen[region.target_description] != value
+        ):
+            raise BusinessError(422, "conflicting_changes", "同一区域存在不同要求，请合并后提交")
+        regions_seen[region.target_description] = value
 
 
 def readiness_errors(params: Params, assets: list[Asset]) -> list[str]:
@@ -80,6 +112,11 @@ def build_initial_prompt(
     if errors:
         raise BusinessError(422, "order_not_ready", "；".join(errors))
     ids = list(dict.fromkeys(key for change in params.changes for key in change.source_asset_ids))
+    ids = list(
+        dict.fromkeys(
+            [*ids, *(key for region in params.region_prompts for key in region.source_asset_ids)]
+        )
+    )
     if params.material_slots is not None:
         ids = [key for key in params.material_slots if key]
     inputs = [{"asset_id": params.base_asset_id, "role": "base"}] + [
@@ -122,8 +159,20 @@ def build_initial_prompt(
             if key
         )
         lines.append(
-            "素材编号固定，与图片输入序号不同。按补充要求指定的用途使用素材；"
+            "素材编号固定，与图片输入序号不同。按区域要求或补充要求指定的用途使用素材；"
             "未指明用途的素材不主动应用，不自行推断替换对象。"
+        )
+    for region in params.region_prompts:
+        if not (region.instruction or region.preserve_instruction):
+            continue
+        sources = (
+            "、".join(f"图片 {positions[key]}" for key in dict.fromkeys(region.source_asset_ids))
+            or "无（文字要求）"
+        )
+        lines.append(
+            f"区域【{region.label}】：目标为图片 1 中的{region.target_description}；"
+            f"素材来源：{sources}；修改要求：{region.instruction or '不修改此区域内容'}；"
+            f"保留要求：{region.preserve_instruction or '保留未明确要求修改的内容'}。"
         )
     lines.extend(
         style["prompt_template"].values() if params.style_id else ["保持底图原有表现风格。"]

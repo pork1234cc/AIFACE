@@ -37,6 +37,16 @@ class ChangeItem(StrictModel):
     preserve_instruction: Note = ""
 
 
+class RegionPrompt(StrictModel):
+    id: Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]{1,64}$")]
+    label: CustomerName
+    target_description: CustomerName
+    origin: Literal["detected", "manual"] = "manual"
+    source_asset_ids: list[AssetId] = Field(default_factory=list, max_length=100)
+    instruction: Note = ""
+    preserve_instruction: Note = ""
+
+
 class Params(StrictModel):
     schema_version: Literal[2] = 2
     base_asset_id: AssetId | None = None
@@ -44,6 +54,8 @@ class Params(StrictModel):
         Annotated[str, StringConstraints(pattern=r"^(q_crayon_001|custom_[0-9a-f]{32})$")] | None
     ) = "q_crayon_001"
     changes: list[ChangeItem] = Field(default_factory=list, max_length=20)
+    region_asset_id: AssetId | None = None
+    region_prompts: list[RegionPrompt] = Field(default_factory=list, max_length=20)
     material_slots: list[AssetId | None] | None = Field(default=None, min_length=3)
     aspect_ratio: Literal[
         "16:9", "21:9", "4:3", "3:2", "5:4", "1:1", "4:5", "2:3", "3:4", "9:16", "9:21"

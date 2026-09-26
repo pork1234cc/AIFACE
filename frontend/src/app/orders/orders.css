@@ -61,6 +61,27 @@
 .style-summary p { font-size: 12px; color: #9b836c; line-height: 1.9; }
 .prompt-preview { white-space: pre-wrap; font: inherit; font-size: 12px; line-height: 1.9; overflow-wrap: anywhere; margin-top: 14px; background: #f6f6f0; padding: 16px; border-radius: 6px; }
 .back-link { display: inline-block; color: #758568; font-size: 12px; margin-bottom: 16px; }
+.region-editor { display: grid; gap: 14px; margin-bottom: 20px; }
+.region-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.region-heading h3 { margin: 0; font-size: 14px; font-weight: 500; }
+.region-photo { position: relative; display: block; width: min(100%, 260px); padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: #eeeee6; cursor: crosshair; justify-self: center; }
+.region-photo img { object-fit: fill; }
+.region-photo canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.region-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.region-chip { border: 1px solid #dce1d3; background: #fafbf6; color: #506348; padding: 7px 10px; border-radius: 16px; font-size: 12px; cursor: pointer; }
+.region-chip[aria-pressed="true"] { border-color: #628b59; background: #e8efdf; }
+.region-chip:disabled { cursor: default; opacity: .6; }
+.region-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.region-add input { flex: 1; min-width: 150px; }
+.region-fields { min-width: 0; padding: 14px; border: 1px solid #dce1d3; border-radius: 8px; }
+.region-fields legend { padding: 0 5px; font-size: 13px; }
+.region-material-options { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.order-form .region-material { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.region-material input { width: auto; }
+.region-material img { object-fit: contain; border-radius: 4px; background: #f3f3ed; }
+.region-note { font-size: 11px; line-height: 1.7; color: #78876c; }
+.region-global-label { display: grid; gap: 9px; margin-bottom: 10px; font-size: 14px; }
+.region-prompt-preview { margin: 12px 0; font-size: 12px; }
 .generation-inputs { font-size: 12px; line-height: 1.9; padding-left: 20px; margin: 16px 0; overflow-wrap: anywhere; }
 .generation-history { display: grid; gap: 8px; margin-top: 22px; }
 .generation-status { margin-top: 22px; color: #40533d; }
