@@ -121,7 +121,7 @@ export function CreationFields({ config, assets, disabled, onChange, section = "
     <button type="button" className="order-button" disabled={config.changes.length >= 20} onClick={() => patch({ changes: [...config.changes, { target_description: "", change_type: "", source_asset_ids: [], instruction: "", preserve_instruction: "" }] })}>＋ 添加修改项</button>
     {stale && <p className="order-alert">有失效素材，请修正引用后保存。</p>}
     <label>补充要求与取景<textarea rows={3} maxLength={2000} value={config.extra_requirement} onChange={(event) => patch({ extra_requirement: event.target.value })} placeholder="例如：裁掉画面中的手部，保留面部和发型；不重新设计姿势" /></label>
-    <label>输出比例<select value={config.aspect_ratio} onChange={(event) => patch({ aspect_ratio: event.target.value })}>{Object.entries(aspectSizes).map(([ratio, size]) => <option key={ratio} value={ratio}>{ratio} · {size}</option>)}</select></label>
+    <label>输出比例<select value={config.aspect_ratio} onChange={(event) => patch({ aspect_ratio: event.target.value })}>{Object.keys(aspectSizes).map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select></label>
     <label>生图格式<select value={config.output_format ?? "png"} onChange={(event) => patch({ output_format: event.target.value as "png" | "jpeg" | "webp" })}><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option></select></label>
     <p className="muted">每次固定一张。尺寸对应供应商文档，最终以实际返回为准。比例控制画布，取景请写入补充要求。</p>
     {base && <p className="muted">底图 {base.width} × {base.height}；比例变化可能需要裁剪或扩展画布，不会要求拉伸原图。</p>}</>}

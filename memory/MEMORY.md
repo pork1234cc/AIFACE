@@ -1,5 +1,23 @@
 # 项目记忆索引
 
+- 2026-09-26：产品 ID 修正后按用户要求仅重启、不打包。后端/Worker/3000 开发前端已启动（启动器 PID 33544），健康检查及首页 HTTP 200；授权名称为“小红书头像工作台”，当前未激活，Worker 等待 `aiface` 授权。3001 未运行、Tunnel 保持运行，旧便携包未更新。详见 [接入记录](../docs/commenlib-integration.md)。
+
+- 2026-09-26：用户最新纠正产品映射为 `aiface` → `小红书头像工作台`。授权配置及安装记录应以此为准，凭证目录为 `%APPDATA%/aiface`；下方 `xhstupian` 记录仅代表历史状态。不能从参考项目的服务地址推断本项目的产品 ID 或名称，也不能将旧产品联网验证结果视为新产品验证结果。
+
+- 2026-09-26 17:06：激活失败已修复。从用户提供的“小说图片生成”项目确认授权 HTTP 地址为 `https://xhstools-qedmuqoouc.cn-hangzhou.fcapp.run`，保持产品 `xhstupian`。备份后修正 project.yaml 并重启本项目，本机已有凭证真实联网验证成功，8000/3000 健康检查通过、Worker 正常运行。未重新激活、未记录卡密，24 项授权专项测试通过。详见 [接入记录](../docs/commenlib-integration.md)。
+
+- 2026-09-26 16:55：按用户要求已启动后端 8000、Worker、本地前端 3000，健康检查通过，页面已包含授权入口；当前授权未通过，Worker 等待激活。生产 `.next-mobile` 已构建成功，但启动 3001 被自动审批拒绝，外网入口尚未恢复；Tunnel PID 9956 保持运行。详见 [接入与重启记录](../docs/commenlib-integration.md)。
+
+- 2026-09-26：commenlib 已接入网页授权、API 门禁与 Worker 授权等待/周期验证，配置见 project.yaml，接线与验证见 [公共组件接入](../docs/commenlib-integration.md)。本次不生成 EXE，默认服务未重启，真实卡密未验证。
+
+## 高频问题记录
+
+- 2026-09-26：真实诊断确认原 OTS 地址对 `/activate` 返回 HTTP 400、`OTSUnsupportOperation`。用户已部署授权程序并不代表给出的数据库地址就是 HTTP 授权入口；后续应做无凭证协议探测，避免只完成模拟测试便忽略实际配置兼容性。已修复宿主吞掉错误分类的问题；17:06 从用户指定项目找到正确地址并恢复授权。
+
+- 2026-09-26：用户已确认授权服务部署完成并要求直接完成接入；按其提供的产品 ID `xhstupian` 和地址配置，不反复要求补充部署信息。模拟验证与真实协议验证仍如实区分。
+
+## 历史记录
+
 - 2026-09-26：按用户要求已重启默认后端、Worker、3000 开发前端，并重建 `.next-mobile` 后重启 3001 生产前端。三入口健康检查成功，新区域识别接口均已载入；既有 Cloudflare Tunnel 保持运行。此前“需重启/3001 未更新”的状态已解除。重启前全部生成及示意图任务均已成功，无运行中任务。
 
 - 2026-09-26：区域提示词编辑器已实现，本地 BiSeNet 模型已安装于 storage/models；支持照片选区、逐区要求与素材关联、手动补充、组合预览、草稿及快照。154 项后端/67 项前端测试、lint、改动格式与构建通过；Chrome 模拟提交 1 次，真实模型提交 0。默认服务保留，8000 热重载未生效，需正常重启启动窗口；3001 生产构建尚未更新。细节与验证见 [区域提示词设计](../docs/region-prompts.md)。开工前基线 3216808 已推送，本次功能修改保留工作区供审阅。
@@ -31,3 +49,11 @@
 - 2026-09-21：统一底图创作已实施，104+51 测试及模拟浏览器验收通过；新存储 storage/unified，真实效果待验收。继续任务先读 AIFACE_PLAN.md 最新实施结果与 docs/unified-validation.md。
 
 - 2026-09-21 界面偏好：右侧生成结果使用小尺寸预览（最大320×320px），保留点击查看原图，不能因右栏宽而自动放大。左侧五项输入和固定素材编号见 docs/architecture.md。
+
+- 2026-09-26：Windows x64 便携 ZIP 已完成，双击 AIFACE.exe 自动启动，内置 Python/Node/本地模型。实际中文路径、隔离 APPDATA 与系统 PATH 冒烟通过；未运行付费任务。构建及清理记录见 [docs/portable-build.md](../docs/portable-build.md)，最终包在 `dist/AIFACE-0.1.0-Windows-x64-Portable-20260926.zip`。命名空间 Cython 模块须显式指定完整导入名，公共组件不改。
+
+- 2026-09-26：已实现 Codex CLI 动态元素拆解 + MobileSAM 轮廓点选；用户明确应按实际对象细节动态分类，不能回退为固定人像名称。样图真实识别 97 项，子进程导入和使用见 [docs/codex-elements.md](../docs/codex-elements.md)。旧便携包未更新。
+
+- 2026-09-26 21:28：已按用户要求重新打包，最新包 `dist/AIFACE-0.1.0-Windows-x64-Portable-Codex-20260926-212840.zip`，约 182 MiB，包含元素识别代码及 MobileSAM；目标机仍需安装并登录 Codex CLI。30 项相关测试、实际 EXE 中文路径隔离启动与双模型推理、ZIP CRC 通过，旧包保留，详情见 [docs/portable-build.md](../docs/portable-build.md)。
+
+- 2026-09-26 21:48：新增 Codex 自动发现及模型设置页浏览/手动路径，保存于可写根目录 codex-settings.json，清空恢复自动检测；源服务已重启，当前默认自动。本机 PATH 移除后仍能发现桌面版，后端 220 / 前端 75 测试与浏览器保存刷新通过；最新便携包 `dist/AIFACE-0.1.0-Windows-x64-Portable-Codex-20260926-214825.zip`，实际 EXE 隔离启动/模型及 ZIP 校验通过，详见 [docs/portable-build.md](../docs/portable-build.md)。

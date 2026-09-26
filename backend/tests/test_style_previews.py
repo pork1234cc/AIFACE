@@ -1,5 +1,6 @@
 """示意图队列、封面保留、恢复、版本和幂等边界。"""
 
+import pytest
 from sqlalchemy import func, select
 from test_custom_styles import new_style
 from test_orders_api import client as api_client
@@ -181,7 +182,9 @@ def test_query_failure_keeps_original_remote_task(client):
     assert len(provider.submits) == 1
 
 
-def test_link_unknown_remote_task_and_resume_without_submission(client, monkeypatch):
+@pytest.mark.parametrize("model", ["gpt-image-2.0-4k", "gpt-image-2", "gpt-image-2.5-sunburst"])
+def test_link_unknown_remote_task_and_resume_without_submission(client, monkeypatch, model):
+    monkeypatch.setenv("image_model", model)
     from app.api import style_previews as api
 
     style = new_style(client)
@@ -194,7 +197,7 @@ def test_link_unknown_remote_task_and_resume_without_submission(client, monkeypa
             super().__init__()
 
         def query(self, remote_id):
-            return super().query(remote_id) | {"model": "gpt-image-2.0-4k", "type": "edit"}
+            return super().query(remote_id) | {"model": model, "type": "edit"}
 
     monkeypatch.setattr(api, "ApiiProvider", VerifiedProvider)
     path = f"/api/styles/{style['style_id']}/previews/{task['task_id']}/reconcile"

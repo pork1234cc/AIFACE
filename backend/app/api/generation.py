@@ -133,7 +133,10 @@ def reconcile(request: Request, task_id: str, payload: ReconcileRequest, key: Re
                 if isinstance(provider, apii_protocol.ApiiProvider)
                 else provider.query(payload.provider_task_id)
             )
-            verified = result.get("model") == task.model and result.get("type") == "edit"
+            expected_type = (
+                "generation" if task.request_snapshot_json.get("_mode") == "generate" else "edit"
+            )
+            verified = result.get("model") == task.model and result.get("type") == expected_type
             if not verified:
                 raise BusinessError(422, "remote_task_mismatch", "远端任务模型或类型不匹配")
         except ProviderError as exc:

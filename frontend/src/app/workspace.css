@@ -254,9 +254,9 @@ button.style-card-content:disabled { cursor: default; }
   .metadata-actions { flex-basis: 100%; margin-left: 0; }
 }
 .order-workbench { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
-.style-output-row { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 12px; }
-.style-output-row label { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
-.style-output-row select { flex: 1; width: auto; min-width: 0; }
+.style-output-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, .8fr); gap: 10px; }
+.order-workspace .style-output-row label { display: grid; align-content: start; gap: 8px; min-width: 0; white-space: nowrap; }
+.order-workspace .style-output-row select { width: 100%; min-width: 0; padding-inline: 6px; }
 .generation-log { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .generation-log > h3 { margin: 0 0 12px; }
 .generation-log-list { display: grid; gap: 8px; max-height: 220px; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
@@ -281,7 +281,7 @@ button.style-card-content:disabled { cursor: default; }
 .model-settings-form .order-actions { align-items: center; }
 @media (max-width: 900px) { .order-workbench { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) {
-  .style-output-row { grid-template-columns: minmax(0, 1fr); }
+  .style-output-row { gap: 6px; }
   .app-shell .app-sidebar { padding: 8px 12px; gap: 4px; }
   .app-sidebar .brand { gap: 8px; font-size: 15px; }
   .app-sidebar .brand-mark { width: 30px; height: 30px; border-radius: 9px; font-size: 25px; line-height: 27px; }

@@ -17,6 +17,37 @@ from app.worker import Worker
 client = api_client
 
 
+def test_finals_reads_one_snapshot_while_worker_finishes(client, monkeypatch):
+    from app.services import deliveries
+
+    order_id, payload = ready(client)
+    submit(client, order_id, payload)
+    with Worker(client.app.state.settings, FakeProvider(), 0) as worker:
+        worker.step()
+        worker.step()
+        original = deliveries.result_assets
+        interleaved = False
+
+        def finish_after_version_read(session, key):
+            nonlocal interleaved
+            assets = original(session, key)
+            if not interleaved:
+                interleaved = True
+                assert not assets
+                worker.step()
+            return assets
+
+        monkeypatch.setattr(deliveries, "result_assets", finish_after_version_read)
+        first = get_finals(client, order_id)
+        assert first["items"] == []
+        assert first["versions"] == []
+        assert first["has_open_tasks"] is True
+        second = get_finals(client, order_id)
+        assert len(second["items"]) == len(second["versions"]) == 1
+        assert second["items"][0]["asset_id"] == second["versions"][0]["id"]
+        assert second["has_open_tasks"] is False
+
+
 def get_finals(client, order_id):
     response = client.get(f"/api/orders/{order_id}/finals")
     assert response.status_code == 200

@@ -31,13 +31,12 @@ try {
     $env:PYTHONIOENCODING = 'utf-8'
     Push-Location $projectRoot
     try {
-        & $projectPython -m alembic -c backend/alembic.ini upgrade head
+        & $projectPython (Join-Path $projectRoot 'main.py') migrate
         if ($LASTEXITCODE -ne 0) { throw '数据库迁移失败，未启动服务。' }
     } finally { Pop-Location }
 
     $backendProcess = Start-Process -FilePath $projectPython -ArgumentList @(
-        '-m', 'uvicorn', 'app.main:create_app', '--factory', '--host', '127.0.0.1', '--port', '8000',
-        '--reload', '--reload-dir', ('"' + (Join-Path $projectRoot 'backend') + '"')
+        ('"' + (Join-Path $projectRoot 'main.py') + '"'), 'api', '--port', '8000'
     ) -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $logDirectory "$runId-backend.log") `
         -RedirectStandardError (Join-Path $logDirectory "$runId-backend-error.log")
@@ -47,7 +46,9 @@ try {
         -RedirectStandardOutput (Join-Path $logDirectory "$runId-frontend.log") `
         -RedirectStandardError (Join-Path $logDirectory "$runId-frontend-error.log")
     if (-not $SmokeTest) {
-        $workerProcess = Start-Process -FilePath $projectPython -ArgumentList @('-m', 'app.worker') `
+        $workerProcess = Start-Process -FilePath $projectPython -ArgumentList @(
+            ('"' + (Join-Path $projectRoot 'main.py') + '"'), 'worker', '--port', '8000'
+        ) `
             -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
             -RedirectStandardOutput (Join-Path $logDirectory "$runId-worker.log") `
             -RedirectStandardError (Join-Path $logDirectory "$runId-worker-error.log")
@@ -73,7 +74,7 @@ try {
         if ($page.StatusCode -ne 200 -or $page.Content -notmatch 'AIFACE') { throw '前端首页冒烟检查失败。' }
         Write-Host '冒烟检查通过：首页与同源 API 可访问。'
     } else {
-        Write-Host '生成 Worker 已启动；按 Ctrl+C 停止本次启动的前后端与 Worker。'
+        Write-Host '生成 Worker 等待或已通过网页授权；按 Ctrl+C 停止本次启动的前后端与 Worker。'
         while (-not $backendProcess.HasExited -and -not $frontendProcess.HasExited -and -not $workerProcess.HasExited) {
             Start-Sleep -Seconds 1
         }

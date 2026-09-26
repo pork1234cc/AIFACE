@@ -3,7 +3,18 @@
 import pytest
 from pydantic import ValidationError
 
-from app.config import PROJECT_ROOT, Settings
+from app.config import PROJECT_ROOT, Settings, runtime_roots
+
+
+def test_frozen_resources_and_writable_data_are_separate(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "resources"), raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "portable" / "AIFACE.exe"))
+    resources, data = runtime_roots()
+    assert resources == tmp_path / "resources"
+    assert data == tmp_path / "portable"
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])

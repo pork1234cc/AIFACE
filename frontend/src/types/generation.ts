@@ -7,6 +7,7 @@ export interface GenerationTask {
   status: string;
   failure_stage: string | null;
   error_message: string | null;
+  next_poll_at?: string | null;
   provider_task_id: string | null;
   cost_amount: string | null;
 }

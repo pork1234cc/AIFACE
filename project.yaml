@@ -1,0 +1,34 @@
+app:
+  name: 小红书头像工作台
+  version: 0.1.0
+license:
+  product_id: aiface
+  server_url: https://xhstools-qedmuqoouc.cn-hangzhou.fcapp.run
+update:
+  check_url: ''
+build:
+  main_script: main.py
+  console: true
+  cython_sources:
+  - backend/app/services/licensing.py
+  extra_datas:
+  - [backend/alembic.ini, backend]
+  - [backend/migrations, backend/migrations]
+  - [styles/q_crayon_001, styles/q_crayon_001]
+  - [styles/preview/base-portrait.png, styles/preview]
+  - [storage/models/face-parsing/resnet18.onnx, storage/models/face-parsing]
+  - [storage/models/mobile-sam/mobile_sam.encoder.onnx, storage/models/mobile-sam]
+  - [storage/models/mobile-sam/sam_vit_h_4b8939.decoder.onnx, storage/models/mobile-sam]
+  - [.env.example, .]
+  hidden_imports:
+  - app.main
+  - app.worker
+  - app.services.licensing
+  - commenlib.license_guard.license_client
+  - uvicorn.logging
+  - uvicorn.loops.auto
+  - uvicorn.protocols.http.auto
+  - uvicorn.protocols.websockets.auto
+  - uvicorn.lifespan.on
+  - sqlalchemy.dialects.sqlite
+  - onnxruntime

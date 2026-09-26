@@ -1,5 +1,13 @@
 /** Pure UI policy. Server-side validation remains authoritative. */
 export const OPEN_BATCH_STATUSES = new Set(["pending", "running", "needs_attention"]);
+export function deliveryNeedsRefresh(value: {
+  order_status: string; has_open_tasks: boolean;
+  items: { asset_id: string }[]; versions: { id: string }[];
+}): boolean {
+  const ids = new Set(value.versions.map((asset) => asset.id));
+  return value.items.some((item) => !ids.has(item.asset_id))
+    || (!value.has_open_tasks && ["generating", "modifying"].includes(value.order_status));
+}
 export type WorkspaceRuntime = {
   loaded: boolean;
   hasOpen: boolean;

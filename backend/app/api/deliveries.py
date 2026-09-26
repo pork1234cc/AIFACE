@@ -1,6 +1,7 @@
 """单张交付图、版本切换与订单完成/关闭。"""
 
 from fastapi import APIRouter, Request, Response
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.orders import detail
@@ -15,6 +16,9 @@ router = APIRouter(prefix="/api/orders", tags=["交付"])
 @router.get("/{order_id}/finals")
 def finals(request: Request, order_id: str):
     with Session(request.app.state.engine) as session:
+        # sqlite3 默认不会为 SELECT 开启数据库事务；显式固定读取快照。
+        # WAL 下 Worker 可以继续写入，响应内的版本、交付和任务状态保持一致。
+        session.execute(text("BEGIN"))
         return deliveries.finals_data(session, order_id)
 
 

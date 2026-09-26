@@ -17,7 +17,7 @@ from app.models.orders import (
     utc_now,
 )
 from app.schemas.generation import ReconcileRequest, RetryRequest
-from app.schemas.orders import InitialInputs
+from app.schemas.orders import InitialInputs, Params
 from app.services.assets import MAX_BYTES, content_path
 from app.services.orders import BusinessError, asset_data, get_assets, get_order
 from app.services.prompts import build_initial_prompt
@@ -29,6 +29,18 @@ ACTIVE_TASKS = {"pending", "submitting", "queued", "running", "downloading"}
 def request_hash(payload: dict) -> str:
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def matches_request(batch: GenerationBatch, payload: dict) -> bool:
+    if batch.request_hash == request_hash(payload):
+        return True
+    # 新增默认字段不应让升级前浏览器保留的原请求发生幂等冲突。
+    config = dict(payload["config"])
+    defaults = Params().model_dump()
+    for field in ("mode", "size", "response_format", "async_mode", "mask", "mask_base_asset_id"):
+        if field not in batch.params_snapshot_json and config.get(field) == defaults[field]:
+            config.pop(field, None)
+    return batch.request_hash == request_hash(payload | {"config": config})
 
 
 def get_batch(session: Session, batch_id: str) -> GenerationBatch:
@@ -75,15 +87,40 @@ def make_task(session: Session, batch: GenerationBatch, slot: int, attempt: int 
         request_snapshot_json={
             "model": model_settings.image_model,
             "_api_url": model_settings.image_api_url,
+            "_mode": batch.params_snapshot_json.get("mode", "edit"),
             "prompt": batch.prompt_snapshot,
-            "aspect_ratio": batch.params_snapshot_json["aspect_ratio"],
+            **(
+                {"aspect_ratio": batch.params_snapshot_json["aspect_ratio"]}
+                if batch.params_snapshot_json.get("aspect_ratio")
+                else {}
+            ),
+            **(
+                {"size": batch.params_snapshot_json["size"]}
+                if batch.params_snapshot_json.get("size")
+                else {}
+            ),
+            **(
+                {"mask": batch.params_snapshot_json["mask"]}
+                if batch.params_snapshot_json.get("mask")
+                else {}
+            ),
             "quality": model_settings.image_quality,
             "output_format": batch.params_snapshot_json.get("output_format", "png"),
-            "response_format": "url",
-            "async": True,
+            "response_format": batch.params_snapshot_json.get("response_format", "url"),
+            "async": batch.params_snapshot_json.get("async_mode", True),
             "inputs": batch.input_snapshot_json,
         },
     )
+    if attempt > 1:
+        previous = session.scalar(
+            select(GenerationTask)
+            .where(GenerationTask.batch_id == batch.id, GenerationTask.slot_index == slot)
+            .order_by(GenerationTask.attempt_no.desc())
+            .limit(1)
+        )
+        if previous is not None:
+            task.model = previous.model
+            task.request_snapshot_json = dict(previous.request_snapshot_json)
     session.add(task)
     session.flush()
     return task
@@ -113,7 +150,7 @@ def create_initial(
         )
     )
     if existing:
-        if existing.request_hash != digest:
+        if not matches_request(existing, payload.model_dump()):
             raise BusinessError(409, "idempotency_conflict", "同一请求编号不能用于不同内容")
         return existing
     ensure_available(session, order_id)
@@ -162,6 +199,20 @@ def preview_creation(
     """预览与提交共用底图版本、素材关系及文件完整性检查。"""
     order = get_order(session, order_id, editable=True)
     assets = get_assets(session, order_id)
+    if (
+        payload.config.size
+        and not payload.config.aspect_ratio
+        and Settings().image_model == "gpt-image-2.5-sunburst"
+    ):
+        width, height = map(int, payload.config.size.split("x"))
+        if max(width, height) > 3840 or width * height > 3686400:
+            raise BusinessError(
+                422, "invalid_size", "Sunburst 单边不能超过3840，总像素不能超过3686400"
+            )
+    if payload.config.mode == "generate":
+        if operation == "revision":
+            raise BusinessError(422, "invalid_mode", "继续修改需要图片编辑模式")
+        return build_initial_prompt(order, assets, payload, session)
     base = next((asset for asset in assets if asset.id == payload.config.base_asset_id), None)
     if base is None:
         raise BusinessError(422, "invalid_base", "请选择本订单的编辑底图")
@@ -246,7 +297,9 @@ def retry_batch(session: Session, batch_id: str, payload: RetryRequest, key: str
             raise BusinessError(409, "slot_not_failed", "只能补生成明确失败的位置")
     for slot in payload.slot_indices:
         task = current[slot]
-        if task.failure_stage in {"download", "persist", "protocol"} and task.provider_task_id:
+        if task.failure_stage in {"download", "persist", "protocol"} and (
+            task.provider_task_id or task.result_metadata_json
+        ):
             task.status = "downloading" if task.result_metadata_json else "queued"
             task.error_code = task.error_message = task.failure_stage = task.finished_at = None
             task.next_poll_at = None

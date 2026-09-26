@@ -23,7 +23,7 @@ test("订单工作区不再包含额外 ready 动作", () => {
 test("窄屏恢复导航而不是继续隐藏", () => assert.match(read("app/workspace.css"), /\.app-sidebar nav \{ display: grid/));
 test("操作错误与轮询错误是独立状态", () => {
   const code = read("components/orders/generation-panel.tsx");
-  assert.match(code, /setActionError/); assert.match(code, /setReadError/);
-  const polling = code.slice(code.indexOf("async function load()"), code.indexOf("async function send("));
+  assert.match(code, /setActionError/); assert.match(code, /setDeliveryError/); assert.match(code, /setTaskError/);
+  const polling = code.slice(code.indexOf("async function loadDelivery()"), code.indexOf("async function send("));
   assert.doesNotMatch(polling, /setActionError/);
 });

@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { apiGet, apiRequest, errorMessage } from "@/lib/api";
+import CodexSettings from "@/components/codex-settings";
+import { IMAGE_MODELS } from "@/lib/image-options";
 
 type ModelSettings = { api_url: string; model: string; quality: string; has_api_key: boolean };
-const MODEL_OPTIONS = ["gpt-image-2.0-4k", "gpt-image-2"] as const;
+const MODEL_OPTIONS = IMAGE_MODELS;
 
 export default function ModelSettingsPage() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
@@ -60,5 +62,6 @@ export default function ModelSettingsPage() {
       <p className="muted">API Key 只保存在后端配置中，不会回传到浏览器。接口地址需支持现有的图片编辑与任务查询路径。</p>
       <div className="order-actions"><button className="order-button primary" type="submit" disabled={saving}>{saving ? "保存中…" : "保存模型设置"}</button>{saved && <span role="status">已保存</span>}</div>
     </form>}
+    <CodexSettings />
   </section>;
 }

@@ -1,0 +1,85 @@
+# commenlib 构建流水线配置
+#
+# 宿主接入方式：commenlib 整目录拷贝到宿主项目根的 commenlib/ 子目录后，
+# 在宿主根执行 ``python commenlib/buildsystem/build_all.py``。
+#
+# root_dir 相对本文件所在目录（即 commenlib/buildsystem/）解析：
+#   - "..":     commenlib/      （commenlib 自身根）
+#   - "../..":  宿主项目根       （含 main.py + project.yaml）
+# 本流水线以宿主根作为构建工作目录。
+
+project:
+  name: "commenlib_build"
+  root_dir: "../.."           # 宿主项目根（含 project.yaml + main.py）
+  require_host: true          # 清理前先确认宿主配置、入口和组件目录
+  skip_dirs:
+    - venv
+    - .venv
+    - venv_clean
+    - env
+    - .git
+    - dist
+    - __pycache__
+    - node_modules
+
+# 构建步骤（按顺序执行）
+steps:
+  # 步骤1: 清除缓存和编译产物
+  - name: clean
+    type: clean
+    enabled: true
+    description: "清除缓存和编译产物"
+    abort_on_failure: true
+    clean_targets:
+      dirs:
+        - .commenlib-build
+
+  # 步骤2: Cython 编译（commenlib 自身 + 宿主声明的源）
+  - name: compile
+    type: compile
+    enabled: true
+    description: "Cython 编译 PYD"
+    abort_on_failure: true
+    command: '"{python}" commenlib/buildsystem/setup_cython.py build_ext --inplace --build-temp .commenlib-build/temp --build-lib .commenlib-build/lib'
+    output_extensions:
+      - .pyd
+
+  # 步骤3: PyInstaller 打包
+  - name: package
+    type: package
+    enabled: true
+    description: "PyInstaller 打包 EXE"
+    abort_on_failure: true
+    command: '"{python}" -m PyInstaller commenlib/buildsystem/build.spec --workpath .commenlib-build/pyinstaller --clean --noconfirm'
+
+  # 步骤4: 清理编译产物
+  - name: post-clean
+    type: post_clean
+    enabled: true
+    description: "清理编译产物，保留源码"
+    abort_on_failure: false
+    clean_targets:
+      dirs:
+        - .commenlib-build
+
+  # ---- 以下为自定义步骤示例（默认禁用） ----
+
+  # 运行测试
+  # - name: test
+  #   type: shell
+  #   enabled: false
+  #   description: "运行单元测试"
+  #   abort_on_failure: true
+  #   command: "{python} -m pytest tests/ -v"
+
+  # 代码签名
+  # - name: sign
+  #   type: shell
+  #   enabled: false
+  #   description: "对 EXE 进行代码签名"
+  #   abort_on_failure: false
+  #   command: "signtool sign /f cert.pfx dist/*.exe"
+
+# 变量定义（可在 command 中用 {变量名} 引用）
+variables:
+  python: "python"            # 运行时自动替换为 sys.executable

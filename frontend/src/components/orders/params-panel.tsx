@@ -6,9 +6,11 @@ import { compactConfig, materialSlots } from "@/lib/creation-config";
 import { validParamsDraft } from "@/lib/order-drafts";
 import { useSessionDraft } from "@/hooks/use-session-draft";
 import { useLeaveGuard } from "@/hooks/use-leave-guard";
-import { aspectSizes, type OrderDetail, type Style } from "@/types/orders";
+import { type OrderDetail, type Style } from "@/types/orders";
+import { changeCreationMode } from "@/lib/image-options";
 import { regionBindingError } from "@/lib/region-prompts";
 import { RegionPromptEditor } from "./region-prompt-editor";
+import { ImageOptionsFields } from "./image-options-fields";
 
 export function ParamsPanel({ order, disabled, archived = false, onSave, onBusy, onDirty, materialsPanel }: {
   order: OrderDetail; disabled: boolean; archived?: boolean; onSave: (order: OrderDetail) => void;
@@ -34,25 +36,30 @@ export function ParamsPanel({ order, disabled, archived = false, onSave, onBusy,
   }, [reload]);
   const locked = disabled || archived || !draft.restored;
   const config = compactConfig({ ...order, params: archived ? order.params : {
-    ...draft.value, material_slots: materialSlots(order), base_asset_id: order.params.base_asset_id,
+    ...draft.value,
+    material_slots: draft.value.mode === "generate" ? [null, null, null] : materialSlots(order),
+    base_asset_id: draft.value.mode === "generate" ? null : (order.params.base_asset_id ?? draft.value.base_asset_id),
   } });
   return <>
     <section className="order-panel compact-style">
       {styleError && <p className="order-alert" role="alert">{styleError} <button className="text-button" onClick={() => setReload((n) => n + 1)}>重试</button></p>}
-      <div className="style-output-row">
+      <ImageOptionsFields key={config.base_asset_id ?? "text"} config={config} disabled={locked} onChange={draft.change} onBusy={onBusy}>
+        <label>创作方式<select disabled={locked || order.assets.some((asset) => asset.kind === "generated")} value={config.mode ?? "edit"}
+          onChange={(event) => draft.change(changeCreationMode(config, event.target.value as "edit" | "generate", order))}>
+          <option value="edit">图片编辑</option><option value="generate">纯文生图</option>
+        </select></label>
         <label>风格<select disabled={locked} value={config.style_id ?? ""} onChange={(event) => draft.change({ ...config, style_id: event.target.value || null })}>
-          <option value="">保持原图风格</option>
+          <option value="">{config.mode === "generate" ? "按提示词决定风格" : "保持原图风格"}</option>
           {!styles.some((style) => style.style_id === config.style_id) && config.style_id && <option value={config.style_id}>{config.style_id === "q_crayon_001" ? "柔彩蜡笔" : "当前自定义风格"}</option>}
           {styles.map((style) => <option key={style.style_id} value={style.style_id}>{style.style_name}</option>)}
         </select></label>
-        <label>生图尺寸<select disabled={locked} value={config.aspect_ratio} onChange={(event) => draft.change({ ...config, aspect_ratio: event.target.value })}>{Object.keys(aspectSizes).map((ratio) => <option key={ratio}>{ratio}</option>)}</select></label>
         <label>生图格式<select disabled={locked} value={config.output_format} onChange={(event) => draft.change({ ...config, output_format: event.target.value as "png" | "jpeg" | "webp" })}>
           <option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option>
         </select></label>
-      </div>
+      </ImageOptionsFields>
     </section>
-    {materialsPanel}
-    <section className="order-panel params-panel" id="order-requirements"><h2>区域提示词</h2>
+    {config.mode !== "generate" && materialsPanel}
+    <section className="order-panel params-panel" id="order-requirements"><h2>{config.mode === "generate" ? "创作要求" : "区域提示词"}</h2>
       {error && <p className="order-alert" role="alert">{error}</p>}
       {draft.storageWarning && <p className="order-alert">{draft.storageWarning}</p>}
       <form onSubmit={async (event) => {
@@ -71,10 +78,10 @@ export function ParamsPanel({ order, disabled, archived = false, onSave, onBusy,
         } catch (cause) { setError(errorMessage(cause)); }
         finally { running.current = false; onBusy(false); }
       }}>
-        <RegionPromptEditor key={config.base_asset_id ?? "empty"} orderId={order.id} config={config} assets={order.assets}
-          disabled={locked} enabled={draft.restored} archived={archived} onChange={draft.change} />
+        {config.mode !== "generate" && <RegionPromptEditor key={config.base_asset_id ?? "empty"} orderId={order.id} config={config} assets={order.assets}
+          disabled={locked} enabled={draft.restored} archived={archived} onChange={draft.change} />}
         <label className="region-global-label">完整提示词<textarea aria-label="完整提示词" rows={5} maxLength={2000} disabled={locked} value={config.extra_requirement} onChange={(event) => draft.change({ ...config, extra_requirement: event.target.value })} placeholder="填写整体要求；上方区域要求会自动组合，无需重复填写。" /></label>
-        {!archived && <button type="button" className="text-button" disabled={locked || previewing || !config.base_asset_id} onClick={async () => {
+        {!archived && <button type="button" className="text-button" disabled={locked || previewing || (config.mode !== "generate" && !config.base_asset_id)} onClick={async () => {
           const regionError = regionBindingError(config);
           if (regionError) { setError(regionError); return; }
           setPreviewing(true); setError("");

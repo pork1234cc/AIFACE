@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from test_assets import image_bytes
 
-from app.config import PROJECT_ROOT, Settings
+from app.config import DEFAULT_IMAGE_MODEL, PROJECT_ROOT, Settings
 from app.main import create_app
 from app.models.orders import (
     Asset,
@@ -25,6 +25,8 @@ from app.services.orders import get_order, write_session
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    # 生图服务会重新读取设置，固定测试模型，避免读取开发机的 .env。
+    monkeypatch.setenv("image_model", DEFAULT_IMAGE_MODEL)
     monkeypatch.setenv("AIFACE_DATABASE_PATH", str(tmp_path / "test.sqlite3"))
     monkeypatch.setenv("AIFACE_STORAGE_PATH", str(tmp_path / "storage"))
     command.upgrade(Config(str(PROJECT_ROOT / "backend/alembic.ini")), "head")

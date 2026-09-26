@@ -1,4 +1,4 @@
-import { aspectSizes } from "../types/orders.ts";
+import { validAspectRatio } from "./image-options.ts";
 import type { OrderParams } from "../types/orders.ts";
 import { validRegionPrompts } from "./region-prompts.ts";
 export type InfoDraft = { customer_name: string; note: string };
@@ -14,7 +14,13 @@ export function validParamsDraft(value: unknown): value is OrderParams {
   return item.schema_version === 2 && (item.base_asset_id === null || typeof item.base_asset_id === "string")
     && (item.style_id === null || item.style_id === "q_crayon_001"
       || (typeof item.style_id === "string" && /^custom_[0-9a-f]{32}$/.test(item.style_id)))
-    && typeof item.aspect_ratio === "string" && Object.hasOwn(aspectSizes, item.aspect_ratio)
+    && (validAspectRatio(item.aspect_ratio) || (item.aspect_ratio === "" && typeof item.size === "string"))
+    && (item.mode === undefined || ["edit", "generate"].includes(item.mode as string))
+    && (item.size == null || (typeof item.size === "string" && /^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$/.test(item.size)))
+    && (item.response_format === undefined || ["url", "b64_json"].includes(item.response_format as string))
+    && (item.async_mode === undefined || typeof item.async_mode === "boolean")
+    && (item.mask == null || (typeof item.mask === "string" && item.mask.length <= 28000000))
+    && (item.mask_base_asset_id == null || typeof item.mask_base_asset_id === "string")
     && (item.output_format === undefined || ["png", "jpeg", "webp"].includes(item.output_format as string))
     && typeof item.extra_requirement === "string" && item.extra_requirement.length <= 2000
     && (item.region_asset_id == null || typeof item.region_asset_id === "string")

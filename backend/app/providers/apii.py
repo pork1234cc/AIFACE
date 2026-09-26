@@ -11,6 +11,12 @@ import httpx
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.config import Settings
+from app.providers.image_payload import (
+    decode_base64_image,
+    is_mask_url,
+    validate_mask,
+    validate_mask_url,
+)
 from app.services.assets import MAX_BYTES
 
 # 真实联调确认的供应商 CDN；仅此精确域名允许代理的 198.18/15 伪 IP。
@@ -68,6 +74,22 @@ class ProviderError(Exception):
         self.remote_status = remote_status
 
 
+def parse_image_result(body: dict) -> dict:
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+        raise ProviderError("unexpected_image_count", "供应商成功结果必须恰好包含一张图片")
+    if isinstance(data[0].get("b64_json"), str):
+        try:
+            decode_base64_image(data[0]["b64_json"])
+        except ValueError as exc:
+            raise ProviderError("provider_protocol", "供应商返回无效的 Base64 图片") from exc
+        return {"b64_json": data[0]["b64_json"]}
+    url = data[0].get("url")
+    if not isinstance(url, str) or len(url) > 8192 or not url.startswith("https://"):
+        raise ProviderError("provider_protocol", "供应商未返回有效 HTTPS 图片地址")
+    return {"url": url}
+
+
 def parse_result(body: dict) -> dict:
     if not isinstance(body, dict):
         raise ProviderError("provider_protocol", "供应商响应格式不符合约定")
@@ -88,13 +110,7 @@ def parse_result(body: dict) -> dict:
         "type": body.get("type"),
     }
     if status == "succeeded":
-        data = body.get("result", {}).get("data") if isinstance(body.get("result"), dict) else None
-        if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
-            raise ProviderError("unexpected_image_count", "供应商成功结果必须恰好包含一张图片")
-        url = data[0].get("url")
-        if not isinstance(url, str) or len(url) > 8192 or not url.startswith("https://"):
-            raise ProviderError("provider_protocol", "供应商未返回有效 HTTPS 图片地址")
-        result["url"] = url
+        result.update(parse_image_result(body.get("result")))
     return result
 
 
@@ -116,13 +132,42 @@ class ApiiProvider:
 
     def submit(self, snapshot: dict, images: list[bytes], key: str) -> dict:
         headers = self._headers() | {"Idempotency-Key": key}
-        payload = {k: v for k, v in snapshot.items() if k not in {"inputs", "_api_url"}}
+        payload = {k: v for k, v in snapshot.items() if k != "inputs" and not k.startswith("_")}
         api_url = snapshot.get("_api_url", self.settings.image_api_url)
-        payload["images"] = [
-            base64.b64encode(data).decode("ascii") for data in prepare_inline_images(images)
-        ]
+        mode = snapshot.get("_mode", "edit")
+        if mode == "generate" and (images or payload.get("mask")):
+            raise ProviderError("invalid_provider_input", "纯文生图不能附带参考图或遮罩")
+        if payload.get("mask"):
+            try:
+                value = payload["mask"]
+                if is_mask_url(value):
+                    validate_mask_url(value)
+                    mask_data = self.download(value)
+                else:
+                    mask_data = decode_base64_image(value)
+                if not images:
+                    raise ValueError("遮罩需要底图")
+                with Image.open(io.BytesIO(images[0])) as base:
+                    validate_mask(mask_data, base.size)
+                payload["mask"] = base64.b64encode(mask_data).decode("ascii")
+            except (ValueError, OSError, ProviderError) as exc:
+                raise ProviderError(
+                    "invalid_mask", "遮罩读取失败或尺寸、透明区域不符合要求"
+                ) from exc
+            # 遮罩编辑保留底图原字节，避免 EXIF 转向或透明度变化造成坐标错位。
+            prepared = images
+        else:
+            prepared = prepare_inline_images(images)
+        if mode == "edit":
+            payload["images"] = [base64.b64encode(data).decode("ascii") for data in prepared]
+        endpoint = "generations" if mode == "generate" else "edits"
         try:
-            response = self.client.post(api_url + "/v1/images/edits", json=payload, headers=headers)
+            response = self.client.post(
+                api_url + f"/v1/images/{endpoint}",
+                json=payload,
+                headers=headers,
+                timeout=httpx.Timeout(600 if payload.get("async") is False else 60, connect=15),
+            )
         except httpx.HTTPError as exc:
             raise ProviderError(
                 "submission_unknown", "提交连接中断，受理结果不明，请人工核对", uncertain=True
@@ -139,6 +184,11 @@ class ApiiProvider:
             )
         try:
             body = response.json()
+            if isinstance(body, dict) and "data" in body:
+                try:
+                    return {"status": "succeeded", **parse_image_result(body)}
+                except ProviderError as exc:
+                    raise ValueError("invalid synchronous result") from exc
             # 一旦拿到有效编号即保存；状态协议问题留给只读查询处理。
             remote_id = body.get("task_id") if isinstance(body, dict) else None
             if not isinstance(remote_id, str) or not REMOTE_ID.fullmatch(remote_id):

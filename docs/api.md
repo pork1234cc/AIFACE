@@ -1,8 +1,18 @@
+# 2026-09-26 完整图片接口适配
+
+2026-09-26 刷新修复：GET `/orders/{id}/finals` 显式使用同一 SQLite 读取快照，避免 Worker 完成时混合返回旧版本列表和新交付记录。字段不变。前端交付结果与任务详情独立轮询；状态读取不完整时仍锁定写操作。任务的 `next_poll_at` 用于显示远端查询重试时间，详见 [刷新修复](refresh-delay-review.md)。
+
+订单 Params 增加 `mode=edit|generate`、`size`、`response_format=url|b64_json`、`async_mode`、`mask`、`mask_base_asset_id`。`aspect_ratio` 支持正整数自定义比例，空值时使用 size。`generate` 不要求底图，必须填写完整提示词且不携带图片引用；继续修改仍要求当前交付图和 edit 模式。对外订单生成接口仍返回本地异步任务，`async_mode` 只控制 Worker 与供应商的交互方式。三个模型可在模型设置切换。完整校验、请求示例字段和恢复语义见 [图片接口适配](sunburst-integration.md)。本条替代下文仅支持11种比例及仅图片编辑的旧限制。
+
 # 统一创作 API 契约
+
+## Codex 元素接口（2026-09-26）
+
+当前网页使用 `/orders/{order_id}/images/{asset_id}/elements`：GET 只读缓存/进度；POST 启动后台识别；POST `/import` 接收带原图摘要的 Codex JSON；POST `/{region_id}/refine` 根据包含/排除点修正独立蒙版。动态对象树、RLE 蒙版、状态与错误契约见 [Codex 元素接口说明](codex-elements.md)。旧 `/regions` 仅保留兼容。
 
 ## 区域提示词（2026-09-26）
 
-统一配置增加可选 `region_asset_id`（默认 null）和 `region_prompts`（默认 []，最多 20 项）。与 `material_slots` 同时使用，不改变既有 `changes` 协议。每项示例：
+统一配置增加可选 `region_asset_id`（默认 null）和 `region_prompts`（默认 []，当前最多 100 项）。与 `material_slots` 同时使用，不改变既有 `changes` 协议。每项示例：
 
 ```json
 {
@@ -53,6 +63,8 @@ id 为 1～64 位字母、数字、下划线或连字符，列表内唯一；lab
 aspect_ratio 仅接受 16:9、21:9、4:3、3:2、5:4、1:1、4:5、2:3、3:4、9:16、9:21，默认 1:1。output_format 仅接受 png、jpeg、webp，默认 png。订单生图的 quality 从全局模型设置读取，默认 high。尺寸由供应商比例表决定，无独立任意 size 或数量参数。额外字段被拒绝。
 
 ## 模型设置
+
+Codex 路径配置独立于生图设置：`GET /model-settings/codex` 返回 `{configured_path,resolved_path,source,available,version,message}`；`PUT /model-settings/codex` 接收 `{path}`，非空时验证绝对路径和 CLI 能力，空字符串恢复自动检测；`POST /model-settings/codex/detect` 接收 `{path}`，仅检测不保存，空字符串检测自动候选。`POST /model-settings/codex/browse` 打开服务本机文件选择窗口，返回 `{path:string|null}`，取消为 null；沿用软件授权，且仅允许 loopback 请求与本机 Origin，远程来源返回 403，窗口已打开返回 409，打开失败或超时返回 503。检测不调用模型和登录接口。详见 [Codex 元素拆解](codex-elements.md)。
 
 `GET /model-settings` 返回 `{api_url,model,quality,has_api_key}`；绝不返回 API Key。`PUT /model-settings` 接收 `{api_url,model,quality,api_key?}`，仅支持现有 Apii 协议。接口 URL 必须是无路径、查询参数和账号的 HTTPS 根地址；质量限 `auto`、`low`、`medium`、`high`。`api_key` 为空时保留原密钥。保存更新后端 `.env` 并由 Worker 在后续任务读取；模型、质量和接口地址写入新任务快照，不重写已提交任务。
 
@@ -151,3 +163,17 @@ GET /health 核验数据库迁移 head，成功 `{status:"ok",database:"ready",v
 - `POST /orders/{id}/image-slots/{slot}/clear`：清空对应位置，其他编号不变，返回 OrderDetail；旧资产与文件保留。
 
 固定位置操作拒绝已归档订单和存在未结束任务的订单。上传解码失败不改变原图；替换在同一数据库写事务完成。无需新增数据库迁移。
+
+## 2026-09-26 软件授权接入
+
+所有业务接口增加软件授权校验；未激活、授权失效或验证不可用时返回 HTTP 403，错误码 `license_required`。健康检查与以下三个授权端点允许在未激活状态访问：
+
+| 方法与路径 | 请求 | 响应 |
+| --- | --- | --- |
+| GET `/api/license/status` | 无 | `authorized`、`name`、`message`、`expire_time` |
+| POST `/api/license/activate` | JSON `{"code":"卡密"}` | 同上，失败 HTTP 403，空卡密 HTTP 422 |
+| POST `/api/license/verify` | 无 | 同上，失败 HTTP 403 |
+
+授权响应设置 `Cache-Control: no-store`，不回显卡密、机器码或凭证签名。只有授权成功才放行原业务 API；API 与 Worker 共用 API 进程维护的授权状态。接口不等同于用户账号登录，已有远程访问仍使用 Cloudflare Access。接线与待验证项见 [公共组件接入](commenlib-integration.md)。
+
+2026-09-26 诊断提示修复：`message` 使用固定安全文案区分授权服务响应格式错误、连接失败、超时、卡密无效及过期；不直接透传上游原始响应，HTTP 状态及授权判定不变。

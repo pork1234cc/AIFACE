@@ -1,7 +1,7 @@
 import type { DetectedRegion, OrderParams, RegionPrompt } from "../types/orders.ts";
 
 export function validRegionPrompts(value: unknown): value is RegionPrompt[] {
-  if (!Array.isArray(value) || value.length > 20) return false;
+  if (!Array.isArray(value) || value.length > 100) return false;
   const ids = new Set<string>();
   return value.every((region) => {
     if (!region || typeof region !== "object") return false;
@@ -19,7 +19,7 @@ export function validRegionPrompts(value: unknown): value is RegionPrompt[] {
 
 export function addDetectedRegion(config: OrderParams, region: DetectedRegion): OrderParams {
   const current = config.region_prompts ?? [];
-  if (current.some((item) => item.id === region.id) || current.length >= 20) return config;
+  if (current.some((item) => item.id === region.id) || current.length >= 100) return config;
   return { ...config, region_asset_id: config.base_asset_id, region_prompts: [...current, {
     id: region.id, label: region.label, target_description: region.target_description,
     origin: "detected", source_asset_ids: [], instruction: "", preserve_instruction: "",

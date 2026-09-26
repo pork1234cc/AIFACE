@@ -37,7 +37,7 @@ function OrderWorkspace({ initial }: { initial: OrderDetail }) {
     <BasicInfo order={order} actionTarget={setActionTarget} />
     <div className="order-workbench">
       <div className="order-config">
-        <AssetPanel kind="main" order={order} disabled={busy || readonly || taskLocked} onBusy={onBusy} onChange={updated} />
+        {order.params.mode !== "generate" && <AssetPanel kind="main" order={order} disabled={busy || readonly || taskLocked} onBusy={onBusy} onChange={updated} />}
         <ParamsPanel key={`${order.id}:${JSON.stringify(order.params)}`} order={order} archived={readonly} disabled={busy || readonly || taskLocked} onBusy={onBusy} onDirty={setDirty} onSave={updated}
           materialsPanel={<AssetPanel order={order} disabled={busy || readonly || taskLocked} onBusy={onBusy} onChange={updated} />} />
       </div>
@@ -49,6 +49,7 @@ function OrderWorkspace({ initial }: { initial: OrderDetail }) {
             updated(await apiRequest<OrderDetail>(`/orders/${order.id}/params`, { method: "PATCH", body: {
               ...order.params, changes: [], extra_requirement: "", style_id: null,
               region_asset_id: null, region_prompts: [], ...config, base_asset_id: asset.id,
+              mode: "edit", mask: null, mask_base_asset_id: null,
             } }));
           } catch (cause) { setBaseError(errorMessage(cause)); }
           finally { selectingBase.current = false; onBusy(false); }

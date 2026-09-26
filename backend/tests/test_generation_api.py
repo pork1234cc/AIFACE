@@ -91,7 +91,9 @@ def test_retry_preserves_attempts_and_blocks_success(client):
     assert client.post(path, json={"slot_indices": [True]}, headers=headers).status_code == 422
 
 
-def test_link_remote_checks_model_and_id(client, monkeypatch):
+@pytest.mark.parametrize("model", ["gpt-image-2.0-4k", "gpt-image-2", "gpt-image-2.5-sunburst"])
+def test_link_remote_checks_model_and_id(client, monkeypatch, model):
+    monkeypatch.setenv("image_model", model)
     _, batch = generate(client)
     provider = FakeProvider()
     provider.unknown = True
@@ -112,7 +114,7 @@ def test_link_remote_checks_model_and_id(client, monkeypatch):
         lambda remote_id: {
             "task_id": remote_id,
             "status": "queued",
-            "model": "gpt-image-2.0-4k",
+            "model": model,
             "type": "edit",
         },
     )

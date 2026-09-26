@@ -5,12 +5,40 @@ import re
 from sqlalchemy.orm import Session
 
 from app.models.orders import Asset, Order, utc_now
+from app.providers.image_payload import (
+    decode_base64_image,
+    is_mask_url,
+    validate_mask,
+    validate_mask_url,
+)
 from app.schemas.orders import InitialInputs, Params
 from app.services.orders import BusinessError
 from app.services.styles import load_style
 
 
 def validate_sources(params: Params, assets: list[Asset]) -> None:
+    if params.mode == "generate":
+        if (
+            params.base_asset_id
+            or params.mask
+            or params.region_prompts
+            or params.changes
+            or any(params.material_slots or [])
+        ):
+            raise BusinessError(
+                422, "generation_has_images", "纯文生图不能附带底图、素材或遮罩，请切换到图片编辑"
+            )
+    if params.mask:
+        base = next((a for a in assets if a.id == params.base_asset_id), None)
+        if base is None or params.mask_base_asset_id != params.base_asset_id:
+            raise BusinessError(422, "stale_mask", "遮罩对应底图已变化，请重新上传或指定遮罩")
+        try:
+            if is_mask_url(params.mask):
+                validate_mask_url(params.mask)
+            else:
+                validate_mask(decode_base64_image(params.mask), (base.width, base.height))
+        except ValueError as exc:
+            raise BusinessError(422, "invalid_mask", str(exc)) from exc
     active = {a.id: a for a in assets if a.kind == "input" and a.is_active_input}
     ids = {key for change in params.changes for key in change.source_asset_ids}
     if params.region_prompts:
@@ -77,9 +105,14 @@ def validate_sources(params: Params, assets: list[Asset]) -> None:
 
 def readiness_errors(params: Params, assets: list[Asset]) -> list[str]:
     errors = []
+    if not params.aspect_ratio and not params.size:
+        errors.append("请填写输出比例或尺寸")
+    if params.mode == "generate" and not params.extra_requirement.strip():
+        errors.append("纯文生图需要填写完整提示词")
     base = next((a for a in assets if a.id == params.base_asset_id), None)
-    if base is None or (
-        base.kind == "input" and (not base.is_active_input or base.input_role != "main")
+    if params.mode == "edit" and (
+        base is None
+        or (base.kind == "input" and (not base.is_active_input or base.input_role != "main"))
     ):
         errors.append("请明确选择本次编辑底图")
     try:
@@ -119,9 +152,9 @@ def build_initial_prompt(
     )
     if params.material_slots is not None:
         ids = [key for key in params.material_slots if key]
-    inputs = [{"asset_id": params.base_asset_id, "role": "base"}] + [
-        {"asset_id": key, "role": "material"} for key in ids
-    ]
+    inputs = (
+        [] if params.mode == "generate" else [{"asset_id": params.base_asset_id, "role": "base"}]
+    ) + [{"asset_id": key, "role": "material"} for key in ids]
     positions = {item["asset_id"]: i + 1 for i, item in enumerate(inputs)}
     style = (
         load_style(params.style_id, session).model_dump()
@@ -132,6 +165,21 @@ def build_initial_prompt(
             "prompt_template": {},
         }
     )
+    canvas = f"比例 {params.aspect_ratio}" if params.aspect_ratio else f"尺寸 {params.size}"
+    if params.mode == "generate":
+        lines = [
+            "根据以下描述创作一张全新图片。",
+            *style["prompt_template"].values(),
+            params.extra_requirement,
+        ]
+        lines.append(f"只输出一张图片，画布{canvas}。")
+        return {
+            "inputs": [],
+            "params": params.model_dump(),
+            "style": style,
+            "prompt": "\n".join(lines),
+            "target_count": 1,
+        }
     lines = [
         "图片 1 是本次编辑底图。未明确要求修改的内容默认保留。",
         "保留底图的人物和物品数量、位置、姿态、背景及布局；画面左右均以观看者视角为准。",
@@ -179,9 +227,10 @@ def build_initial_prompt(
     )
     lines += [
         f"补充要求及取景：{params.extra_requirement or '保留原图取景意图'}",
-        f"只输出一张独立图片，画布比例 {params.aspect_ratio}；"
-        "比例不等于取景要求，不拉伸人物或物品。",
+        f"只输出一张独立图片，画布{canvas}；比例不等于取景要求，不拉伸人物或物品。",
     ]
+    if params.mask:
+        lines.append("仅修改遮罩完全透明区域，保留遮罩不透明区域的内容。")
     return {
         "inputs": inputs,
         "params": params.model_dump(),

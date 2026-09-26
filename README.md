@@ -1,4 +1,18 @@
+# 2026-09-26 图片接口扩展
+
+模型设置可切换 `gpt-image-2.0-4k`、`gpt-image-2`、`gpt-image-2.5-sunburst`，新安装默认 Sunburst。订单新增纯文生图、独立透明遮罩重绘、自定义比例/像素尺寸、同步/异步及 URL/Base64 返回；原有图片编辑与继续修改保留。使用入口、兼容边界和验证见 [图片接口适配](docs/sunburst-integration.md)。
+
+最新便携包：[AIFACE 刷新修复版](dist/AIFACE-0.1.0-Windows-x64-Portable-RefreshFix-20260926-223955.zip)，约 182 MiB，包含上述图片接口扩展。已修复生成结果被任务详情阻塞、交付状态读取不一致导致自动刷新延迟的问题；网络查询异常时显示原因和下次查询时间。后端 277 项、前端 83 项测试及最终 ZIP 中文路径隔离 EXE 验收通过，详情见 [刷新问题修复](docs/refresh-delay-review.md) 和 [便携版说明](docs/portable-build.md)。
+
+升级时退出旧程序，将新 ZIP 完整解压到新目录，再把旧目录的 `storage`、`.env`、`codex-settings.json`（存在时）复制到新目录中的 `AIFACE` 文件夹，之后运行其中的 `AIFACE.exe`。保留旧目录作备份，不要只替换 EXE。复制旧 `.env` 会保留原模型选择和 API 配置。
+
 # 当前版本说明（2026-09-21）
+
+2026-09-26 区域识别升级为 Codex 动态对象拆解 + MobileSAM 本地轮廓：支持区分不同人物和物件、细节点选、放大、父级切换与选区修正。网页可直接调用已登录的 Codex CLI，也可导入外部子进程 JSON；使用与验收见 [Codex 元素拆解](docs/codex-elements.md)。源码版首次需安装本地分割模型，新版便携包已内置模型；自动分析需要目标电脑安装并登录 Codex CLI。
+
+2026-09-26 已生成含 Codex 元素识别及路径配置的 Windows x64 便携版：分发 `dist/AIFACE-0.1.0-Windows-x64-Portable-Codex-20260926-214825.zip`，约 182 MiB，完整解压后双击 `AIFACE/AIFACE.exe`，无需安装 Python 或 Node.js。首次输入卡密，并在模型设置填写自己的 API Key。Codex 会自动检测，也可在模型设置中浏览选择程序路径。保留启动窗口，退出时按 Ctrl+C；详细构建与隔离验收记录见 [便携版说明](docs/portable-build.md)。旧 ZIP 保留。
+
+2026-09-26 接入软件卡密授权：启动后网页先显示激活入口，授权成功进入原工作台；业务 API 与生成 Worker 同时受保护，运行中自动周期验证。授权配置位于 `project.yaml`，产品 ID 为用户提供的 `xhstupian`。卡密与模型 API Key 分别配置。接入与验证见 [公共组件说明](docs/commenlib-integration.md)。下方启动脚本用于开发环境；后端启动为无热重载模式。
 
 2026-09-26 新增区域提示词编辑：主照片加载后在本地识别头发、五官、服饰等候选区域，点击区域填写修改要求、选择参考素材，再统一组装提示词。支持手动补充区域和组合预览。识别用于提示词定位，不做像素级图层编辑。详见 [功能与安装说明](docs/region-prompts.md)。
 
@@ -75,7 +89,7 @@ pip 会在隔离构建环境中安装 setuptools，不向全局 Python 安装依
 | --- | --- |
 | `image_api` | 可选模型密钥；基础工程不需要此值，也不调用供应商。后续模型调用前通过 `require_image_api()` 校验 |
 | `image_api_url` | 当前 Apii 协议的 HTTPS 接口根地址，默认 `https://ai.apii.cn` |
-| `image_model` | 图片模型名称，默认 `gpt-image-2.0-4k` |
+| `image_model` | 图片模型名称，默认 `gpt-image-2.5-sunburst`，可切换 `gpt-image-2.0-4k` 或 `gpt-image-2` |
 | `image_quality` | 图片质量：`auto`、`low`、`medium` 或 `high`，默认 `high` |
 | `AIFACE_DATABASE_PATH` | SQLite 路径，默认 `storage/unified/database/aiface.sqlite3`；相对路径始终以项目根目录为基准 |
 | `AIFACE_STORAGE_PATH` | 素材根目录，默认 `storage`；隔离测试时与数据库路径一起设置 |

@@ -1,8 +1,16 @@
+# 2026-09-26 图片协议扩展
+
+无需迁移：Params 增加 mode、size、response_format、async_mode、mask、mask_base_asset_id；旧配置默认 edit/url/async。纯文生图的 base_asset_id 为 null、input_snapshot_json 为 []。透明遮罩以 Base64/Data URL/HTTPS 字符串存入配置和请求快照，独立于现有区域识别缓存。任务 result_metadata_json 临时保存 url 或 b64_json，落盘成功后清除；同步结果允许 provider_task_id 为 null，仍支持原结果恢复。详见 [图片接口适配](sunburst-integration.md)。
+
 # 统一创作数据模型
+
+2026-09-26：region_prompts 容量提高至 100 项，仍保存在 params_json，无数据库迁移。新增文件缓存 `element-analyses/{order_id}/{asset_id}` 保存 Codex 对象树、独立蒙版与图片 SHA256；current 原子更新、历史修订保留。完整重识别产生新实例 ID，轮廓修正保留 ID 并更新 version，避免把旧文字自动绑定到新对象。详见 [Codex 元素拆解](codex-elements.md)。
 
 更新：2026-09-21。新流程不兼容旧订单，旧表与文件保留，当前业务只访问 `v2_*` 表。
 
 ## 存储
+
+本机 Codex 路径另存于可写根目录 `codex-settings.json`，格式 `{path:string}`，空字符串表示自动检测。原子替换，不含账号凭证，不随包分发；无需数据库迁移。
 
 默认库 `storage/unified/database/aiface.sqlite3`，默认图片根 `storage/unified`。SQLite 启用外键、WAL、5 秒锁等待；写事务使用 BEGIN IMMEDIATE。迁移 0006 创建新表；0009 移除四图数量触发器；0010 调整订单状态约束并转换已有订单状态，保留任务和资产外键。
 

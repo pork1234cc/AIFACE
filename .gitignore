@@ -25,3 +25,11 @@ next-env.d.ts
 # 运行数据与日志
 storage/
 *.log
+
+# 可重建的便携产物与可恢复构建记录
+.commenlib-build/
+dist/
+outputs/build-records/
+outputs/portable-build-current.json
+codex-settings.json
+codex-settings.json.*.tmp

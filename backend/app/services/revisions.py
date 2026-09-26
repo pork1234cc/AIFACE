@@ -11,6 +11,7 @@ from app.services.generation import (
     aggregate,
     ensure_available,
     make_task,
+    matches_request,
     preview_creation,
     request_hash,
     verify_input,
@@ -41,7 +42,7 @@ def create_revision(
         )
     )
     if existing:
-        if existing.request_hash != digest:
+        if not matches_request(existing, normalized):
             raise BusinessError(409, "idempotency_conflict", "同一请求编号不能用于不同内容")
         return existing
     ensure_available(session, order_id)

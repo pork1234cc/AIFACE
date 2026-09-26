@@ -1,0 +1,43 @@
+# 宿主便携版流水线；输出独立目录，中间产物经哈希核对后归档。
+project:
+  name: AIFACE
+  root_dir: .
+  require_host: true
+  skip_dirs:
+    - .venv
+    - venv
+    - venv_clean
+    - env
+    - .git
+    - node_modules
+    - frontend
+    - storage
+    - outputs
+    - dist
+    - __pycache__
+steps:
+  - name: prepare
+    type: shell
+    enabled: true
+    abort_on_failure: true
+    command: '"{python}" -X utf8 scripts/portable-build.py prepare'
+  - name: compile
+    type: compile
+    enabled: true
+    abort_on_failure: true
+    command: '"{python}" -X utf8 scripts/portable-build.py compile'
+  - name: package
+    type: shell
+    enabled: true
+    abort_on_failure: true
+    command: '"{python}" -X utf8 scripts/portable-build.py package'
+  - name: assemble
+    type: shell
+    enabled: true
+    abort_on_failure: true
+    command: '"{python}" -X utf8 scripts/portable-build.py assemble'
+  - name: post-clean
+    type: shell
+    enabled: true
+    abort_on_failure: true
+    command: '"{python}" -X utf8 scripts/portable-build.py archive'

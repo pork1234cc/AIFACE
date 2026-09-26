@@ -15,10 +15,12 @@ from app.config import Settings
 from app.db import create_db_engine
 from app.models.orders import Asset, GenerationBatch, GenerationTask, new_id, utc_now
 from app.providers.apii import ApiiProvider, ProviderError
+from app.providers.image_payload import decode_base64_image
 from app.schemas.deliveries import FinalsRequest
 from app.services.assets import decode_upload
 from app.services.deliveries import set_finals
 from app.services.generation import aggregate, verify_input
+from app.services.licensing import LocalLicenseGate
 from app.services.orders import BusinessError, write_session
 from app.services.style_preview_worker import recover_previews, step_preview
 
@@ -151,8 +153,14 @@ class Worker:
         )
         with write_session(self.engine) as session:
             current = session.get(GenerationTask, task.id)
-            current.provider_task_id, current.status = result["task_id"], "queued"
-            current.next_poll_at = self._next_poll()
+            current.provider_task_id = result.get("task_id")
+            if result["status"] == "succeeded":
+                current.result_metadata_json = {
+                    key: result[key] for key in ("url", "b64_json") if key in result
+                }
+                current.status, current.next_poll_at = "downloading", None
+            else:
+                current.status, current.next_poll_at = "queued", self._next_poll()
             aggregate(session, session.get(GenerationBatch, task.batch_id))
 
     def _query(self, task: GenerationTask):
@@ -163,7 +171,9 @@ class Worker:
             current.poll_failures = 0
             current.status = result["status"]
             if result["status"] == "succeeded":
-                current.result_metadata_json = {"url": result["url"]}
+                current.result_metadata_json = {
+                    key: result[key] for key in ("url", "b64_json") if key in result
+                }
                 current.status, current.next_poll_at = "downloading", None
             elif result["status"] == "failed":
                 current.failure_stage, current.error_code = "remote", "remote_failed"
@@ -178,7 +188,13 @@ class Worker:
         return self.provider.query(remote_id)
 
     def _download(self, task: GenerationTask):
-        data = self.provider.download(task.result_metadata_json["url"])
+        if "b64_json" in task.result_metadata_json:
+            try:
+                data = decode_base64_image(task.result_metadata_json["b64_json"])
+            except ValueError as exc:
+                raise ProviderError("invalid_result", "结果图片 Base64 无效") from exc
+        else:
+            data = self.provider.download(task.result_metadata_json["url"])
         decoded, extension, mime, width, height = decode_upload(io.BytesIO(data))
         with write_session(self.engine) as session:
             current = session.get(GenerationTask, task.id)
@@ -259,24 +275,46 @@ class Worker:
             aggregate(session, session.get(GenerationBatch, task.batch_id))
 
 
-def main():
+def run_licensed_worker(gate, settings, *, once=False, worker_factory=Worker, sleep=time.sleep):
+    """授权通过才创建业务 Worker；失效或 API 失联后暂停后续任务步骤。"""
+    worker = None
+    try:
+        while True:
+            if not gate.authorized():
+                if once:
+                    return 1
+                sleep(2)
+                continue
+            if worker is None:
+                worker = worker_factory(settings)
+                worker.__enter__()
+                print("授权通过，生成 Worker 已启动。", flush=True)
+            worked = worker.step()
+            if once:
+                return 0
+            if not worked:
+                sleep(1)
+    finally:
+        if worker is not None:
+            worker.close()
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description="AIFACE 独立生成 Worker")
     parser.add_argument("--once", action="store_true", help="执行一次可用任务后退出")
-    args = parser.parse_args()
+    parser.add_argument("--api-port", type=int, default=8000, help="本机授权 API 端口")
+    args = parser.parse_args(argv)
+    gate = LocalLicenseGate(args.api_port)
     try:
-        with Worker(Settings()) as worker:
-            print("生成 Worker 已启动；提交结果不明的任务不会自动重发。", flush=True)
-            while True:
-                worked = worker.step()
-                if args.once:
-                    break
-                if not worked:
-                    time.sleep(1)
+        print("生成 Worker 等待本机 API 授权；请在网页中完成激活。", flush=True)
+        return run_licensed_worker(gate, Settings(), once=args.once)
     except KeyboardInterrupt:
         print("生成 Worker 已停止。", flush=True)
     except (RuntimeError, SQLAlchemyError, OSError) as exc:
         print(f"Worker 已停止（{type(exc).__name__}），请检查迁移、进程锁或存储。", file=sys.stderr)
         return 1
+    finally:
+        gate.close()
     return 0
 
 

@@ -9,6 +9,13 @@ const config: OrderParams = { schema_version: 2, base_asset_id: "main", style_id
   changes: [], material_slots: [null, "material", null], extra_requirement: "保持构图", aspect_ratio: "1:1", output_format: "png" };
 const hair: DetectedRegion = { id: "hair", label: "头发", target_description: "头发", origin: "detected", mask_value: 1 };
 
+test("颗粒化对象可保存超过二十项独立要求", () => {
+  let value = config;
+  for (let i = 0; i < 97; i++) value = addDetectedRegion(value, { ...hair, id: `detail_${i}` });
+  assert.equal(value.region_prompts?.length, 97);
+  assert.equal(validRegionPrompts(value.region_prompts), true);
+});
+
 test("识别区域仅选中后加入配置，重复选择不覆盖已写要求", () => {
   const added = addDetectedRegion(config, hair);
   assert.equal(added.region_asset_id, "main");

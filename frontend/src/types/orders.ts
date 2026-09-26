@@ -15,9 +15,9 @@ export interface ChangeItem {
   preserve_instruction: string;
 }
 export const aspectSizes: Record<string, string> = {
-  "16:9": "3840×2160", "21:9": "3840×1648", "4:3": "3264×2448", "3:2": "3504×2336",
-  "5:4": "3200×2560", "1:1": "2880×2880", "4:5": "2560×3200", "2:3": "2336×3504",
-  "3:4": "2448×3264", "9:16": "2160×3840", "9:21": "1648×3840",
+  "16:9": "2560×1440", "21:9": "2912×1248", "4:3": "2176×1632", "3:2": "2304×1536",
+  "5:4": "2080×1664", "1:1": "1920×1920", "4:5": "1664×2080", "2:3": "1536×2304",
+  "3:4": "1632×2176", "9:16": "1440×2560", "9:21": "1248×2912",
 };
 export interface RegionPrompt {
   id: string;
@@ -33,17 +33,38 @@ export interface DetectedRegion {
   label: string;
   target_description: string;
   origin: "detected";
-  mask_value: number;
+  mask_value?: number;
+  parent_id?: string | null;
+  kind?: "object" | "part" | "detail" | "background";
+  depth?: number;
+  bbox?: number[];
+  mask_runs?: number[];
+  mask_area?: number;
+  mask_score?: number;
+  location_status?: "located" | "unlocated";
 }
 export interface RegionDetection {
   asset_id: string;
   regions: DetectedRegion[];
-  mask_url: string;
+  mask_url?: string;
+  version?: string;
   width: number;
   height: number;
 }
+export interface ElementStatus {
+  asset_id: string;
+  status: "idle" | "running" | "ready" | "failed";
+  message?: string;
+  result?: Omit<RegionDetection, "asset_id"> | null;
+}
 export interface OrderParams {
   schema_version: 2;
+  mode?: "edit" | "generate";
+  size?: string | null;
+  response_format?: "url" | "b64_json";
+  async_mode?: boolean;
+  mask?: string | null;
+  mask_base_asset_id?: string | null;
   base_asset_id: string | null;
   style_id: string | null;
   changes: ChangeItem[];

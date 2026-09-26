@@ -1,19 +1,31 @@
 """项目配置：路径固定相对项目根目录，密钥只在后端读取。"""
 
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+def runtime_roots() -> tuple[Path, Path]:
+    """冻结时分开只读资源和可写数据，开发态保持原目录布局。"""
+    if getattr(sys, "frozen", False):
+        executable_root = Path(sys.executable).resolve().parent
+        return Path(getattr(sys, "_MEIPASS", executable_root)), executable_root
+    root = Path(__file__).resolve().parents[2]
+    return root, root
+
+
+PROJECT_ROOT, DATA_ROOT = runtime_roots()
+SETTINGS_FILE = DATA_ROOT / ".env"
 DEFAULT_IMAGE_API_URL = "https://ai.apii.cn"
-DEFAULT_IMAGE_MODEL = "gpt-image-2.0-4k"
+DEFAULT_IMAGE_MODEL = "gpt-image-2.5-sunburst"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=PROJECT_ROOT / ".env",
+        env_file=SETTINGS_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
         hide_input_in_errors=True,
@@ -24,11 +36,11 @@ class Settings(BaseSettings):
     image_model: str = DEFAULT_IMAGE_MODEL
     image_quality: str = "high"
     database_path: Path = Field(
-        default=PROJECT_ROOT / "storage/unified/database/aiface.sqlite3",
+        default=DATA_ROOT / "storage/unified/database/aiface.sqlite3",
         validation_alias="AIFACE_DATABASE_PATH",
     )
     storage_path: Path = Field(
-        default=PROJECT_ROOT / "storage/unified",
+        default=DATA_ROOT / "storage/unified",
         validation_alias="AIFACE_STORAGE_PATH",
     )
 
@@ -39,7 +51,7 @@ class Settings(BaseSettings):
             raise ValueError("AIFACE_STORAGE_PATH 不能为空")
         path = Path(value).expanduser()
         if not path.is_absolute():
-            path = PROJECT_ROOT / path
+            path = DATA_ROOT / path
         if path.is_file():
             raise ValueError("AIFACE_STORAGE_PATH 必须是目录")
         return path.resolve()
@@ -90,7 +102,7 @@ class Settings(BaseSettings):
             raise ValueError("AIFACE_DATABASE_PATH 不能为空")
         path = Path(value).expanduser()
         if not path.is_absolute():
-            path = PROJECT_ROOT / path
+            path = DATA_ROOT / path
         path = path.resolve()
         if path.is_dir():
             raise ValueError("AIFACE_DATABASE_PATH 必须指向数据库文件，不能是目录")

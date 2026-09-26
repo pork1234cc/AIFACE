@@ -82,6 +82,21 @@
 .region-note { font-size: 11px; line-height: 1.7; color: #78876c; }
 .region-global-label { display: grid; gap: 9px; margin-bottom: 10px; font-size: 14px; }
 .region-prompt-preview { margin: 12px 0; font-size: 12px; }
+.element-photo-editor { display: grid; gap: 10px; min-width: 0; }
+.element-canvas-group { min-width: 0; }
+.element-scroll { overflow: auto; max-width: 100%; }
+.element-photo { margin: auto; border-radius: 0; }
+.element-hover-name { min-height: 24px; text-align: center; color: #506348; font-size: 12px; padding-top: 5px; }
+.element-toolbar, .element-candidates { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+.region-chips:has(.element-tree-item) { flex-flow: row wrap; align-items: flex-start; align-content: flex-start; max-height: 360px; overflow: auto; padding: 4px; }
+.region-chips > .region-chip { flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 36px; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; }
+.element-tree-item { text-align: left; border-radius: 7px; }
+.element-dialog { width: min(95vw, 1200px); max-width: 95vw; max-height: 94vh; margin: auto; padding: 18px; border: 1px solid #dce1d3; border-radius: 12px; background: #fafbf6; color: #354730; }
+.element-dialog::backdrop { background: rgb(20 30 15 / 55%); }
+.element-dialog-header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.element-scroll-large { max-height: 65vh; margin-top: 12px; }
+.element-dialog .element-zoom { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12px; }
+.element-zoom input { max-width: 200px; }
 .generation-inputs { font-size: 12px; line-height: 1.9; padding-left: 20px; margin: 16px 0; overflow-wrap: anywhere; }
 .generation-history { display: grid; gap: 8px; margin-top: 22px; }
 .generation-status { margin-top: 22px; color: #40533d; }
